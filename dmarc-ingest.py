@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-# dmarc-collector (Python 3.6 kompatibel)
+# High-Performance DMARC Parser & Forwarder
 #
 # IMAP -> DMARC XML (.xml/.gz/.zip/.tgz/.tar.gz) -> Syslog + JSON (daily) + optional Textlog
 #
 # Funktionen:
 #  - IMAP Modus (Standard)
 #  - File Modus (--file)
-#  - Duplikat-Erkennung via processed_db
-#  - Bereinigung alter JSON Files und processed_db gemäss days_to_keep
+#  - Streaming zu Syslog (Splunk ready)
+#  - Optimierter RAM-Cache zur Duplikat-Erkennung (Hoster-tauglich für 1000+ Domains)
+#  - Trennung von Datei-Archivierung und Cache-Bereinigung
 #  - Lockfile, damit nur ein Job gleichzeitig läuft
 
 import imaplib
@@ -54,7 +55,7 @@ import atexit
 # Metadaten
 # ======================================================================
 __version__ = "1.2.1"
-__author__ = "Claude Heinzmamnn"
+__author__ = "Claude Heinzmann"
 __license__ = "MIT"
 
 
