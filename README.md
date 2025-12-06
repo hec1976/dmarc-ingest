@@ -679,7 +679,7 @@ Siehe `LICENSE` Datei im Repository.
 
 ## Changelog
 
-### [1.2.0] – 2024-12-05
+### [1.2.0] – 2025-12-05
 
 **Added**
 
@@ -693,7 +693,7 @@ Siehe `LICENSE` Datei im Repository.
 - Systemd-Sandboxing ergänzt
 - verbesserte Fehlerbehandlung bei IMAP-Verbindungsfehlern
 
-### [1.1.0] – 2024-10-15
+### [1.1.0] – 2025-10-15
 
 **Added**
 
@@ -701,7 +701,7 @@ Siehe `LICENSE` Datei im Repository.
 - konfigurierbare Aufbewahrungsfristen (`days_to_keep`)
 - erweitertes Logging mit klaren Record- und Script-Logs
 
-### [1.0.0] – 2024-09-10
+### [1.0.0] – 2025-09-10
 
 **Initial Release**
 
