@@ -454,12 +454,9 @@ log { source(s_net); filter(f_dmarc); destination(d_dmarc); };
 ## Datei- & Ordnerstruktur
 
 ```text
-/etc/dmarc-ingest/
-  └── config.ini
-
 /opt/dmarc-ingest/
   ├── dmarc-ingest.py         # Hauptskript
-  └── config.ini -> /etc/dmarc-ingest/config.ini
+  └── config.ini 
 
 /var/lib/dmarc-ingest/
   ├── reports/
