@@ -186,38 +186,45 @@ Eigenschaften:
 
 ## Installation
 
-### Verzeichnisse anlegen
+## Verzeichnisse anlegen
 
 ```bash
 sudo mkdir -p /opt/dmarc-ingest
 sudo mkdir -p /var/lib/dmarc-ingest/reports
 sudo mkdir -p /var/log/dmarc-ingest
-sudo mkdir -p /etc/dmarc-ingest
 ```
 
-### Dateien deployen
+## Dateien deployen
 
 ```bash
+# Script nach /opt/dmarc-ingest
 sudo cp dmarc-ingest.py /opt/dmarc-ingest/
-sudo cp config.ini.example /etc/dmarc-ingest/config.ini
-sudo ln -sf /etc/dmarc-ingest/config.ini /opt/dmarc-ingest/config.ini
+
+# Beispiel-Konfiguration als aktive Config
+sudo cp config.ini.example /opt/dmarc-ingest/config.ini
 ```
 
-### Systembenutzer anlegen
+Hinweis:  
+`dmarc-ingest.py` erwartet `config.ini` im **gleichen Verzeichnis** wie das Script.  
+Wenn du später eine andere Struktur möchtest (z. B. `/etc/dmarc-ingest/config.ini`), muss das im Code angepasst werden.
+
+## Systembenutzer anlegen
 
 ```bash
 sudo groupadd dmarc-ingest
 sudo useradd -r -s /bin/false -g dmarc-ingest dmarc-ingest
 ```
 
-### Rechte setzen
+## Rechte setzen
 
 ```bash
-sudo chown -R dmarc-ingest:dmarc-ingest   /opt/dmarc-ingest   /var/lib/dmarc-ingest   /var/log/dmarc-ingest   /etc/dmarc-ingest
+sudo chown -R dmarc-ingest:dmarc-ingest \
+  /opt/dmarc-ingest \
+  /var/lib/dmarc-ingest \
+  /var/log/dmarc-ingest
 
-sudo chmod 0750 /etc/dmarc-ingest
-sudo chmod 0640 /etc/dmarc-ingest/config.ini
 sudo chmod -R 0750 /opt/dmarc-ingest
+sudo chmod 0640 /opt/dmarc-ingest/config.ini
 sudo chmod -R 0770 /var/lib/dmarc-ingest /var/log/dmarc-ingest
 ```
 
