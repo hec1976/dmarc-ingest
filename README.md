@@ -678,6 +678,26 @@ Siehe `LICENSE` Datei im Repository.
 ---
 
 ## Changelog
+### [1.2.1] – 2025-12-20
+
+**Added**
+
+- erweitertem Text-Log mit vollständigen DMARC-Feldern
+- verbessertes Error-Handling bei ZIP/TAR/XML
+- PID-Schreibung im Lockfile
+
+**Improved**
+
+- Dedupe-Performance optimiert (processed_days_to_keep)
+- Purge nur noch beim Speichern → kleiner & schneller Cache
+- stabileres IMAP Folder Handling
+- stabilerer NDJSON-Writer
+
+**Fixed**
+
+- doppelte Syslog-Einträge entfernt
+- korrigierte JSON-Schreibfehler bei fehlenden Unterordnern
+- robustere MIME-Header-Dekodierung
 
 ### [1.2.0] – 2025-12-05
 
