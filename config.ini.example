@@ -1,0 +1,45 @@
+; ===============================
+; dmarc-collector - config.ini
+; ===============================
+
+[imap]
+host = imap.example.com
+user = dmarc-reports@example.com
+password = ***CHANGE_ME***
+folder = INBOX
+archive_folder = INBOX/Processed
+
+
+[syslog]
+enable = yes
+host = 127.0.0.1
+port = 514
+protocol = udp
+
+
+[options]
+save_json = yes
+xml_output_dir = /var/lib/dmarc-collector/reports
+
+; gilt für JSON Tagesfiles und processed_db
+days_to_keep = 30
+
+dry_run = no
+log_records = yes
+
+write_text_log = yes
+text_log_path = /var/log/mmbb/dmarc/dmarc_data.log
+
+json_mode = array
+
+; Duplikate verhindern
+processed_db = /var/lib/dmarc-collector/processed.json
+
+; Lockfile, damit nur ein Job parallel läuft
+lock_file = /run/lock/dmarc-collector.lock
+
+
+[logging]
+console = yes
+enable_file = yes
+file_path = /var/log/mmbb/dmarc/dmarc-collector.log
