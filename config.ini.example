@@ -24,6 +24,9 @@ xml_output_dir = /var/lib/dmarc-collector/reports
 ; gilt für JSON Tagesfiles und processed_db
 days_to_keep = 30
 
+; CACHE: Wie lange merken wir uns "schon gesehene" Reports?
+processed_days_to_keep = 3
+
 dry_run = no
 log_records = yes
 
