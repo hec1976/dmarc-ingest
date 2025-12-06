@@ -115,6 +115,7 @@ SYSLOG_PROTO = config.get("syslog", "protocol", fallback="tcp").lower()
 SAVE_JSON = config.getboolean("options", "save_json", fallback=True)
 XML_OUTPUT_DIR = config.get("options", "xml_output_dir", fallback="/tmp/dmarc_xml")
 DAYS_TO_KEEP = config.getint("options", "days_to_keep", fallback=7)
+CACHE_DAYS_TO_KEEP = config.getint("options", "processed_days_to_keep", fallback=DAYS_TO_KEEP)
 DRY_RUN = config.getboolean("options", "dry_run", fallback=False)
 LOG_RECORDS = config.getboolean("options", "log_records", fallback=True)
 WRITE_TEXT_LOG = config.getboolean("options", "write_text_log", fallback=False)
@@ -475,22 +476,28 @@ def _collect_xmls_from_message(msg):
 
 
 # ======================================================================
-# Duplikat Erkennung
+# Duplikat Erkennung (Optimiert für High-Performance)
 # ======================================================================
 
 _processed_cache = set()
 
 
 def purge_old_processed():
+    """
+    Bereinigt den RAM-Cache basierend auf CACHE_DAYS_TO_KEEP.
+    Dies hält die processed_db klein und schnell (z.B. nur 3 Tage).
+    """
     global _processed_cache
 
     if not _processed_cache:
         return
-    if DAYS_TO_KEEP <= 0:
+    # ÄNDERUNG: Wir nutzen hier die eigene Cache-Variable, nicht mehr die Datei-Variable
+    if CACHE_DAYS_TO_KEEP <= 0:
         return
 
     now_ts = int(time.time())
-    cutoff_ts = now_ts - DAYS_TO_KEEP * 86400
+    # ÄNDERUNG: Berechnung mit CACHE_DAYS_TO_KEEP
+    cutoff_ts = now_ts - CACHE_DAYS_TO_KEEP * 86400
 
     keep = set()
     removed = 0
@@ -501,6 +508,7 @@ def purge_old_processed():
             end_str = parts[3] if len(parts) >= 4 else ""
             end_ts = int(end_str)
         except Exception:
+            # Beschädigte Keys sicherheitshalber behalten, um Loop zu vermeiden
             keep.add(key)
             continue
 
@@ -511,8 +519,8 @@ def purge_old_processed():
 
     if removed:
         logger_script.info(
-            "[DMARC] {} alte Einträge aus processed_db entfernt (days_to_keep = {}).".format(
-                removed, DAYS_TO_KEEP
+            "[DMARC] {} alte Einträge aus Deduplizierungs-Cache entfernt (Cache-Limit: {} Tage).".format(
+                removed, CACHE_DAYS_TO_KEEP
             )
         )
 
@@ -520,6 +528,9 @@ def purge_old_processed():
 
 
 def load_processed_cache():
+    """
+    Lädt die DB nur in den RAM. Kein Aufräumen hier -> Maximale Startgeschwindigkeit.
+    """
     global _processed_cache
     if not PROCESSED_DB:
         _processed_cache = set()
@@ -529,21 +540,34 @@ def load_processed_cache():
             items = json.load(f)
             _processed_cache = set(items)
         logger_script.debug("[DMARC] processed_db geladen: {} Einträge".format(len(_processed_cache)))
-        purge_old_processed()
+        
+        # ÄNDERUNG: Hier NICHT purgen! 
+        # Wir laden die Datei so schnell wie möglich. Sie ist bereits sauber, 
+        # da beim letzten 'save' aufgeräumt wurde.
+        # purge_old_processed() 
+        
     except Exception:
         _processed_cache = set()
 
 
 def save_processed_cache():
+    """
+    Räumt auf und speichert dann. Hält die Datei auf der Festplatte klein.
+    """
     if not PROCESSED_DB:
         return
     try:
+        # ÄNDERUNG: Hier wird aufgeräumt, BEVOR wir auf die Festplatte schreiben.
         purge_old_processed()
+        
         base = os.path.dirname(PROCESSED_DB) or "."
         os.makedirs(base, exist_ok=True)
         tmp = PROCESSED_DB + ".tmp"
+        
+        # Sortiert speichern für schönere Diffs (optional, kostet etwas CPU)
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(sorted(_processed_cache), f, indent=2, ensure_ascii=False)
+            
         os.replace(tmp, PROCESSED_DB)
         logger_script.debug("[DMARC] processed_db gespeichert: {} Einträge".format(len(_processed_cache)))
     except Exception as e:
