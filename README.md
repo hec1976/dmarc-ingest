@@ -722,4 +722,3 @@ Beiträge sind willkommen.
   - Tests (falls möglich)
   - aktualisierter Dokumentation (README / CHANGELOG)
  eröffnen
-```
