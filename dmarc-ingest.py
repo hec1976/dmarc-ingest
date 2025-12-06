@@ -49,6 +49,15 @@ import sys
 import fcntl
 import atexit
 
+
+# ======================================================================
+# Metadaten
+# ======================================================================
+__version__ = "1.2.1"
+__author__ = "Claude Heinzmamnn"
+__license__ = "MIT"
+
+
 # ======================================================================
 # Argumente
 # ======================================================================
@@ -56,6 +65,7 @@ import atexit
 parser = argparse.ArgumentParser(
     description='DMARC Parser: verarbeitet Reports via IMAP oder lokale Datei'
 )
+parser.add_argument('--version', action='version', version='%(prog)s ' + __version__)
 parser.add_argument('--loglevel', default='INFO', help='Logging Level (z. B. INFO, DEBUG)')
 parser.add_argument('--file', help='Lokale Datei zur Verarbeitung (.xml, .zip, .gz, .tgz, .tar.gz)')
 args = parser.parse_args()
@@ -798,6 +808,10 @@ def process_file_mode(filename):
 # ======================================================================
 
 if __name__ == "__main__":
+
+    # Logging Initialisierung ist hier schon durch
+    logger_script.info("Starte DMARC Collector v{} (Python {})".format(__version__, sys.version.split()[0]))
+
     acquire_lock()
     load_processed_cache()
 
