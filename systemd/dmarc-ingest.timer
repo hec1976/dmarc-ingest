@@ -1,0 +1,10 @@
+[Unit]
+Description=Run dmarc-ingest every 10 minutes
+
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=10m
+Unit=dmarc-ingest.service
+
+[Install]
+WantedBy=timers.target
