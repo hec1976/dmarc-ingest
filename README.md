@@ -655,7 +655,7 @@ ls -ltr /var/lib/dmarc-ingest/reports/
 
 ---
 
-## 🗺 Roadmap / Ideen
+## Roadmap / Ideen
 
 - native Elasticsearch/Opensearch-Integration
 - Prometheus-Exporter (Metriken zu Counts, Fehlern, Laufzeiten)
@@ -665,7 +665,7 @@ ls -ltr /var/lib/dmarc-ingest/reports/
 
 ---
 
-## 📄 Lizenz
+## Lizenz
 
 Dieses Projekt steht unter der **MIT License**.
 
