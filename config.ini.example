@@ -45,4 +45,4 @@ lock_file = /run/lock/dmarc-collector.lock
 [logging]
 console = yes
 enable_file = yes
-file_path = /var/log/mmbb/dmarc/dmarc-collector.log
+file_path = /var/log/dmarc/dmarc-collector.log
