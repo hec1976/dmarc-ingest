@@ -1,192 +1,167 @@
-# dmarc-ingest 
+# dmarc-ingest
 
-```
+```text
 ██████╗ ███╗   ███╗ █████╗ ██████╗  ██████╗     ██╗███╗   ██╗ ██████╗ ███████╗███████╗████████╗
 ██╔══██╗████╗ ████║██╔══██╗██╔══██╗██╔════╝     ██║████╗  ██║██╔════╝ ██╔════╝██╔════╝╚══██╔══╝
-██║  ██║██╔████╔██║███████║██████╔╝██║  ███╗    ██║██╔██╗ ██║██║  ███╗█████╗  ███████╗   ██║
-██║  ██║██║╚██╔╝██║██╔══██║██╔══██╗██║   ██║    ██║██║╚██╗██║██║   ██║██╔══╝  ╚════██║   ██║
-██████╔╝██║ ╚═╝ ██║██║  ██║██║  ██║╚██████╔╝    ██║██║ ╚████║╚██████╔╝███████╗███████║   ██║
+██║  ██║██╔████╔██║███████║██████╔╝██║          ██║██╔██╗ ██║██║  ███╗█████╗  ███████╗   ██║
+██║  ██║██║╚██╔╝██║██╔══██║██╔══██╗██║          ██║██║╚██╗██║██║   ██║██╔══╝  ╚════██║   ██║
+██████╔╝██║ ╚═╝ ██║██║  ██║██║  ██║╚██████╗     ██║██║ ╚████║╚██████╔╝███████╗███████║   ██║
 ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝     ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝
 ```
 
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-purple)
 ![Python](https://img.shields.io/badge/python-3.6%2B-yellow)
 ![Security](https://img.shields.io/badge/CodeQL-Security%20Scan-blueviolet)
 
 > **Projekt:** dmarc-ingest  
-> **Beschreibung:** DMARC RUA Ingest- und Normalisierungs-Engine (IMAP → Syslog/JSON/NDJSON)  
-> **Repository:** https://github.com/hec1976/dmarc-ingest  
-
+> **Beschreibung:** High-Performance DMARC RUA Ingest- und Normalisierungs-Engine (IMAP → Syslog / NDJSON / JSON / Textlog)  
+> **Repository:** [https://github.com/hec1976/dmarc-ingest](https://github.com/hec1976/dmarc-ingest)
 
 ---
 
 ## Inhaltsverzeichnis
 
-- [Überblick](#-überblick)
-- [Funktionsumfang](#-funktionsumfang)
-- [Architektur](#-architektur)
-- [Datenmodell](#-datenmodell)
-- [Voraussetzungen](#-voraussetzungen)
-- [Installation](#-installation)
-- [Konfiguration](#-konfiguration-configini)
-- [Betrieb](#-betrieb)
-- [Systemd-Integration](#-systemd-integration)
-- [Logverwaltung](#-logverwaltung)
-- [Syslog-Integration](#-syslog-integration)
-- [Datei- & Ordnerstruktur](#-datei--ordnerstruktur)
-- [Berechtigungen](#-berechtigungen)
-- [Beispiele](#-beispiele)
-- [Troubleshooting](#-troubleshooting)
-- [Sicherheit & Härtung](#-sicherheit--härtung)
-- [Leistung & Betriebshinweise](#-leistung--betriebshinweise)
-- [Roadmap / Ideen](#-roadmap--ideen)
-- [Lizenz](#-lizenz)
-- [Changelog](#-changelog)
-- [Contribution](#-contribution)
+- [Überblick](#überblick)
+- [Funktionsumfang](#funktionsumfang)
+- [Architektur](#architektur)
+- [Datenmodell](#datenmodell)
+- [Voraussetzungen](#voraussetzungen)
+- [Installation](#installation)
+- [Konfiguration (`config.ini`)](#konfiguration-configini)
+- [Betrieb](#betrieb)
+- [Systemd-Integration](#systemd-integration)
+- [Logverwaltung](#logverwaltung)
+- [Syslog-Integration](#syslog-integration)
+- [Datei- & Ordnerstruktur](#datei--ordnerstruktur)
+- [Berechtigungen](#berechtigungen)
+- [Beispiele](#beispiele)
+- [Troubleshooting](#troubleshooting)
+- [Sicherheit & Härtung](#sicherheit--härtung)
+- [Leistung & Betriebshinweise](#leistung--betriebshinweise)
+- [Roadmap / Ideen](#roadmap--ideen)
+- [Lizenz](#lizenz)
+- [Changelog](#changelog)
+- [Contribution](#contribution)
 
 ---
 
 ## Überblick
 
-`dmarc-ingest` ist ein robustes, log-basiertes Ingest-System für **DMARC-Aggregatberichte (RUA)**.  
-Es automatisiert den kompletten Weg von der E-Mail im IMAP-Postfach bis zu normalisierten Logdaten im SIEM:
+`dmarc-ingest` ist ein robustes, log-basiertes Ingest-System für **DMARC-Aggregatberichte (RUA)**, ausgelegt für Hosting-Umgebungen mit hohem Mailaufkommen (1.000+ Domains).  
+Es automatisiert den kompletten Weg von der E-Mail im IMAP-Postfach bis zu normalisierten Logdaten im SIEM (Splunk, ELK, Graylog):
 
-- Abruf von DMARC-Reports per IMAP (IMAPS)
-- Entpacken von komprimierten Anhängen (ZIP/GZ/TAR.GZ/TGZ)
-- Parsing der DMARC-XML-Struktur (fehler- und vendor-tolerant)
-- Normalisierung in ein einheitliches Record-Schema
-- Export nach **Syslog**, **JSON** und **NDJSON**
-- Deduplizierung bereits verarbeiteter Reports
-- Lockfile-Mechanismus, damit nie zwei Jobs gleichzeitig laufen
-- Automatische Aufräumlogik für alte JSON-Dateien und processed-DB
+- Abruf von DMARC-Reports per IMAP (IMAPS) via `BODY.PEEK[]` (kein Datenverlust bei Verbindungsabbruch)
+- In-Memory-Entpacken von komprimierten Anhängen (`.zip`, `.gz`, `.tar.gz`, `.tgz`)
+- Gehärtetes Parsing der DMARC-XML-Struktur (`defusedxml` + Größenlimits gegen Decompression Bombs)
+- Normalisierung in ein einheitliches, flaches Record-Schema
+- Paralleler Export nach **Syslog (UDP/TCP)**, **NDJSON / JSON** und **Text-Log**
+- Schnelle RAM-basierte Deduplizierung bereits verarbeiteter Reports
+- Lockfile-Mechanismus (`fcntl`), damit nie zwei Jobs gleichzeitig laufen
+- Getrennte, automatische Aufräumlogik für alte JSON-Tagesdateien und den Deduplizierungs-Cache
 
-Ziel ist ein **einfach zu betreibendes, aber betriebssicheres** Tool für Mail- und Security-Teams.
+Ziel ist ein **einfach zu betreibendes, aber hochgradig betriebssicheres** Tool für Mail- und Security-Teams.
 
 ---
 
 ## Funktionsumfang
 
 ### Core
-
-- IMAP-Fetch mit SSL/TLS
-- konfigurierbarer Quellordner und Archivordner
-- Verarbeitung lokaler Dateien (`--file`) für Tests
+- IMAP-Fetch über SSL/TLS (`IMAP4_SSL`)
+- Konfigurierbarer Quellordner (`INBOX`) und automatischer Archivordner (`INBOX/Processed`)
+- Lokaler Dateimodus (`--file`) für manuelle Analysen und Tests
 
 ### Datei- & Formatunterstützung
-
-- Anhänge: `.xml`, `.gz`, `.zip`, `.tgz`, `.tar.gz`
-- Mehrere XML-Dateien pro E-Mail werden erkannt und verarbeitet
-- XML-Parsing über `defusedxml` (Fallback möglich)
+- Unterstützte Anhänge: `.xml`, `.gz`, `.zip`, `.tgz`, `.tar.gz`
+- Mehrere Archive pro Mail sowie mehrere XML-Dateien pro Archiv werden einzeln erkannt und dedupliziert
+- Sicheres XML-Parsing über `defusedxml` (mit automatischem Fallback)
+- integrierter Schutz gegen ZIP-/GZIP-Bomben (max. 50 MB pro XML im RAM)
 
 ### Ausgabe
-
-- strukturierte Ausgabe über Syslog (UDP/TCP, RFC-5424-kompatibel)
-- pro Tag eine JSON-Sammeldatei (`YYYYMMDD_all.json`)
-- wahlweise **Array-JSON** oder **NDJSON** (eine JSON-Zeile pro Record)
-- optionales Text-Log pro Record
+- Strukturierte Key-Value-Ausgabe über Syslog (UDP und TCP inkl. Newline-Framing)
+- Pro Tag eine JSON-Sammeldatei (`YYYYMMDD_all.json`)
+- Wahlweise **NDJSON** (empfohlen für Streaming/SIEM) oder **Array-JSON**
+- Optionales strukturiertes Text-Log (`dmarc_data.log`)
 
 ### Betrieb & Stabilität
-
-- **Dry-Run-Modus** (keine Schreiboperationen, ideal für erste Tests)
-- **Lockfile** (`/run/lock/dmarc-ingest.lock`) verhindert parallele Ausführung
-- **processed_db** verhindert doppelte Verarbeitung identischer Reports
-- automatische Bereinigung alter JSON- und processed_db-Einträge basierend auf `days_to_keep`
-- klare Exitcodes und Logging
+- **Dry-Run-Modus** (`dry_run = yes`: liest Mails via `BODY.PEEK[]`, verändert weder Postfach noch Dateien)
+- **Lockfile** (`/run/lock/dmarc-ingest.lock`) verhindert überlappende Cron-/Timer-Läufe
+- **Atomare Schreibvorgänge** für den Cache (`processed.json.tmp` → `os.replace`) verhindern korrupte Dateien bei Stromausfall
+- Separate Aufbewahrungsfristen für Report-Dateien (`days_to_keep`) und den Duplikat-Cache (`processed_days_to_keep`)
 
 ---
 
-##  Architektur
+## Architektur
 
 ```mermaid
 flowchart LR
-    A[IMAP Inbox] --> B[Attachment Extractor]
-    B --> C[XML Parser]
-    C --> D[Normalizer]
-    D --> E1[Syslog Output]
-    D --> E2[NDJSON Export]
-    D --> E3[Daily JSON File]
-    E1 --> F[SIEM / Logstack]
+    A[IMAP Inbox] -->|BODY.PEEK| B[In-Memory Extractor]
+    B --> C[DefusedXML Parser]
+    C --> D{Deduplizierung}
+    D -->|Neu| E1[Syslog UDP/TCP]
+    D -->|Neu| E2[Daily NDJSON / JSON]
+    D -->|Neu| E3[Text Logfile]
+    E1 --> F[SIEM / Splunk / ELK]
     E2 --> F
-    E3 --> G[Archive / Backup]
+    E3 --> G[Lokale Analyse / Archiv]
 ```
 
 **Logger-Klassen:**
+- `DMARC_SCRIPT` – Steuerungs-, Ablauf- und Fehlermeldungen des Collectors
+- `DMARC_DATA` – Reine Nutzdaten (normalisierte DMARC-Records) für die Syslog-Weiterleitung
 
-- `DMARC_SCRIPT` – Steuerungs-, Ablauf- und Fehlermeldungen
-- `DMARC_DATA` – strukturierte DMARC-Records für Weiterleitung/Indexierung
+### Architekturentscheidung: NDJSON & Logs statt Datenbank
 
-### Architekturentscheidung: JSON & Logs statt Datenbank
+DMARC-Reports sind klassische **Zeitreihen- und Logdaten**:
+- Hohe Schreibfrequenz, keinerlei nachträgliche Updates (`Append-Only`)
+- Vorrangig zeitbasierte Auswertungen („letzte X Tage“)
+- Schnelles Datenwachstum bei vielen Domains
 
-DMARC-Reports sind typische **Logdaten**:
-
-- hohe Schreibfrequenz, praktisch keine Updates
-- vorrangig zeitbasierte Abfragen („letzte x Tage“)
-- Datenmengen wachsen schnell
-
-Eine relationale Datenbank wäre:
-
-- komplexer im Betrieb (Backup, Indexpflege, Tuning)
-- anfälliger für Performance-Probleme bei großen Tabellen
-- ein zusätzlicher Single Point of Failure
-
-`dmarc-ingest` setzt daher auf:
-
-- Append-Only-Logs (JSON/NDJSON)
-- Integration in bestehende Log-Pipelines (Syslog, ELK, Graylog, Splunk)
-- optional nachgelagerte Aggregation/Reporting in dedizierten BI/Reporting-Systemen
+Statt einer wartungsintensiven SQL-Datenbank setzt `dmarc-ingest` auf flache Streams (Syslog & NDJSON), die ohne Zwischenspeicher direkt von bestehenden Log-Pipelines (Splunk Universal Forwarder, Filebeat, Vector, rsyslog) aufgenommen werden können.
 
 ---
 
 ## Datenmodell
 
-### Beispiel eines normalisierten DMARC-Records (NDJSON)
+### Beispiel eines normalisierten DMARC-Records (JSON / NDJSON)
 
 ```json
 {
-  "org": "Google",
-  "report_id": "1234567890",
+  "org": "google.com",
+  "report_id": "1234567890123456789",
   "domain": "example.com",
   "policy": "reject",
-  "source_ip": "203.0.113.45",
-  "count": 17,
+  "begin": "1720569600",
+  "end": "1720656000",
+  "ip": "203.0.113.45",
+  "count": "17",
   "disposition": "reject",
   "dkim": "pass",
   "spf": "pass",
   "header_from": "example.com",
-  "begin": "2024-10-01T00:00:00Z",
-  "end": "2024-10-01T23:59:59Z",
   "dkim_domain": "example.com",
   "dkim_result": "pass",
-  "spf_domain": "_spf.example.com",
-  "spf_result": "pass",
-  "ingest_timestamp": "2024-12-05T10:30:15Z"
+  "spf_domain": "example.com",
+  "spf_result": "pass"
 }
 ```
-
-Eigenschaften:
-
-- Zeitangaben als ISO-8601-Strings
-- Felder, die im Report fehlen, werden leer oder `null` gesetzt
-- alle Records folgen dem gleichen Schema, unabhängig vom Provider
 
 ---
 
 ## Voraussetzungen
 
-- **Python**: 3.6 oder neuer (getestet mit 3.8+)
-- **OS**: Linux (Debian/Ubuntu, RHEL/CentOS, SUSE etc.)
-- Python-Module:
-  - `defusedxml` (empfohlen, für sicheres XML-Parsing)
-  - `imaplib2` oder Standard-IMAP-Library (abhängig von der Implementation)
-  - Standard-Libs: `logging`, `json`, `gzip`, `zipfile`, `tarfile`, `argparse`, `pathlib`, ...
+- **Python:** 3.6 oder neuer (getestet bis 3.12)
+- **OS:** Linux (Debian/Ubuntu, RHEL/Alma/Rocky, SUSE)
+- **Python-Pakete:**
+  - `defusedxml` (dringend empfohlen für sicheres XML-Parsing: `apt install python3-defusedxml` oder `pip install defusedxml`)
+  - Alle weiteren Module (`imaplib`, `email`, `gzip`, `zipfile`, `tarfile`, `fcntl`, `logging`) sind Teil der Python-Standardbibliothek.
 
 ---
 
 ## Installation
 
-## Verzeichnisse anlegen
+### 1. Verzeichnisse anlegen
 
 ```bash
 sudo mkdir -p /opt/dmarc-ingest
@@ -194,123 +169,124 @@ sudo mkdir -p /var/lib/dmarc-ingest/reports
 sudo mkdir -p /var/log/dmarc-ingest
 ```
 
-## Dateien deployen
+### 2. Dateien deployen
 
 ```bash
-# Script nach /opt/dmarc-ingest
+# Script kopieren und ausführbar machen
 sudo cp dmarc-ingest.py /opt/dmarc-ingest/
+sudo chmod +x /opt/dmarc-ingest/dmarc-ingest.py
 
-# Beispiel-Konfiguration als aktive Config
-sudo cp config.ini.example /opt/dmarc-ingest/config.ini
+# Konfiguration anlegen
+sudo cp config.ini /opt/dmarc-ingest/config.ini
 ```
 
-Hinweis:  
-`dmarc-ingest.py` erwartet `config.ini` im **gleichen Verzeichnis** wie das Script.  
-Wenn du später eine andere Struktur möchtest (z. B. `/etc/dmarc-ingest/config.ini`), muss das im Code angepasst werden.
+> **Hinweis:** `dmarc-ingest.py` sucht die `config.ini` standardmäßig im selben Verzeichnis, in dem auch das Script liegt (`/opt/dmarc-ingest/config.ini`).
 
-## Systembenutzer anlegen
+### 3. Systembenutzer & Berechtigungen einrichten
 
 ```bash
-sudo groupadd dmarc-ingest
-sudo useradd -r -s /bin/false -g dmarc-ingest dmarc-ingest
-```
+sudo groupadd -r dmarc-ingest
+sudo useradd -r -s /usr/sbin/nologin -g dmarc-ingest -d /var/lib/dmarc-ingest dmarc-ingest
 
-## Rechte setzen
-
-```bash
 sudo chown -R dmarc-ingest:dmarc-ingest \
   /opt/dmarc-ingest \
   /var/lib/dmarc-ingest \
   /var/log/dmarc-ingest
 
-sudo chmod -R 0750 /opt/dmarc-ingest
-sudo chmod 0640 /opt/dmarc-ingest/config.ini
-sudo chmod -R 0770 /var/lib/dmarc-ingest /var/log/dmarc-ingest
+sudo chmod 0750 /opt/dmarc-ingest
+sudo chmod 0600 /opt/dmarc-ingest/config.ini
+sudo chmod 0750 /var/lib/dmarc-ingest /var/log/dmarc-ingest
 ```
 
 ---
 
 ## Konfiguration (`config.ini`)
 
-Beispielkonfiguration:
-
 ```ini
+; ======================================================================
+; dmarc-ingest - config.ini
+; Wichtig: Dateirechte auf 0600 setzen (chmod 600 config.ini)
+; ======================================================================
+
 [imap]
 host = imap.example.com
-port = 993
 user = dmarc-reports@example.com
+; Hinweis: Falls das Passwort ein %-Zeichen enthält, als %% schreiben!
 password = ***CHANGE_ME***
 folder = INBOX
+; Je nach Mailserver INBOX/Processed oder INBOX.Processed
 archive_folder = INBOX/Processed
-ssl = yes
+
 
 [syslog]
 enable = yes
 host = 127.0.0.1
 port = 514
-protocol = udp      ; udp oder tcp
-facility = local0
-tag = DMARC_DATA
+; udp oder tcp
+protocol = udp
 
-[output]
+
+[options]
 save_json = yes
 xml_output_dir = /var/lib/dmarc-ingest/reports
-json_mode = ndjson          ; array oder ndjson
-text_log_enable = yes
-text_log_path = /var/log/dmarc-ingest/dmarc_data.log
 
-[retention]
+; Aufbewahrungsdauer für die JSON-Tagesdateien in xml_output_dir (in Tagen)
 days_to_keep = 30
 
-[processing]
+; CACHE: Wie lange merken wir uns bereits verarbeitete Report-IDs? (in Tagen)
+processed_days_to_keep = 3
+
+; Testmodus (yes = keine Änderungen am IMAP-Postfach, keine Datei-/Syslog-Ausgabe)
 dry_run = no
-max_emails_per_run = 50
+
+; Einzelne Records an Syslog / Text-Log ausgeben
+log_records = yes
+
+write_text_log = yes
+text_log_path = /var/log/dmarc-ingest/dmarc_data.log
+
+; 'ndjson' (empfohlen für hohe Performance & SIEM) oder 'array'
+json_mode = ndjson
+
+; Datenbank für bereits verarbeitete Report-IDs (Duplikat-Schutz)
 processed_db = /var/lib/dmarc-ingest/processed.json
+
+; Lockfile verhindert parallele Ausführung bei überlappenden Läufen
 lock_file = /run/lock/dmarc-ingest.lock
-timeout = 300
+
 
 [logging]
-level = INFO
-file = /var/log/dmarc-ingest/dmarc-ingest.log
-max_size_mb = 10
-backup_count = 5
+; Bei Hintergrund-/Cron-Betrieb auf 'no' setzen, wenn File-Logging aktiv ist
+console = yes
+enable_file = yes
+file_path = /var/log/dmarc-ingest/dmarc-ingest.log
 ```
-
-### Hinweise
-
-- `archive_folder`: je nach IMAP-Server ggf. `INBOX.Processed` statt `INBOX/Processed`.
-- `dry_run = yes`: ideal, um Konfiguration zu testen, ohne E-Mails zu verschieben oder Logs zu schreiben.
-- `json_mode = ndjson`: empfohlen bei großen Datenmengen → speicherschonend, besser für Stream-Verarbeitung.
-- `processed_db`: verhindert doppelte Verarbeitung; Einträge älter als `days_to_keep` werden gelöscht.
-- `lock_file`: verhindert parallele Läufe; bei Crash Lockfile prüfen.
 
 ---
 
 ## Betrieb
 
-### Einmaliger Testlauf (IMAP)
+### Manueller Lauf (IMAP-Abruf)
 
 ```bash
-sudo -u dmarc-ingest python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO --dry-run
+sudo -u dmarc-ingest /usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
 ```
 
-### Regulärer Aufruf (IMAP)
+### Verarbeitung einer lokalen Testdatei (`--file`)
+
+Für Debugging oder das nachträgliche Einlesen einzelner Archive (`.xml`, `.zip`, `.gz`, `.tgz`, `.tar.gz`):
 
 ```bash
-sudo -u dmarc-ingest python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
-```
-
-### Verarbeitung einer lokalen Testdatei
-
-```bash
-sudo -u dmarc-ingest python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=DEBUG --file ./sample_report.zip
+sudo -u dmarc-ingest /usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=DEBUG --file ./sample_report.zip
 ```
 
 ---
 
 ## Systemd-Integration
 
-### Service-Unit `/etc/systemd/system/dmarc-ingest.service`
+Da `dmarc-ingest` alle ungelesenen Mails in einem Durchlauf abarbeitet und sich danach sauber beendet, erfolgt der Betrieb über eine `oneshot`-Service-Unit in Kombination mit einem Systemd-Timer.
+
+### 1. Service-Unit (`/etc/systemd/system/dmarc-ingest.service`)
 
 ```ini
 [Unit]
@@ -319,15 +295,13 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=oneshot
 User=dmarc-ingest
 Group=dmarc-ingest
 WorkingDirectory=/opt/dmarc-ingest
 ExecStart=/usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
-Restart=on-failure
-RestartSec=5s
 
-# Systemd-Härtung
+# Systemd-Härtung (Sandboxing)
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=true
@@ -343,15 +317,13 @@ RestrictRealtime=yes
 RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 CapabilityBoundingSet=
-UMask=007
+UMask=0027
 
-[Install]
-WantedBy=multi-user.target
+# Explizite Schreibrechte trotz ProtectSystem=strict
+ReadWritePaths=/var/lib/dmarc-ingest /var/log/dmarc-ingest /run/lock
 ```
 
-### Timer-Unit (optional, periodischer Lauf)
-
-`/etc/systemd/system/dmarc-ingest.timer`:
+### 2. Timer-Unit (`/etc/systemd/system/dmarc-ingest.timer`)
 
 ```ini
 [Unit]
@@ -360,26 +332,30 @@ Description=Run dmarc-ingest every 10 minutes
 [Timer]
 OnBootSec=2m
 OnUnitActiveSec=10m
+Persistent=true
 Unit=dmarc-ingest.service
 
 [Install]
 WantedBy=timers.target
 ```
 
-Aktivieren:
+### 3. Timer aktivieren
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now dmarc-ingest.service
-# oder mit Timer
 sudo systemctl enable --now dmarc-ingest.timer
+
+# Status und nächsten Lauf prüfen:
+systemctl list-timers dmarc-ingest.timer
 ```
 
 ---
 
 ## Logverwaltung
 
-### Logrotate `/etc/logrotate.d/dmarc-ingest`
+Die JSON-Tagesdateien in `xml_output_dir` sowie die `processed.json` bereinigt das Script selbstständig. Für die Text-Logs unter `/var/log/dmarc-ingest/` empfiehlt sich `logrotate`.
+
+### `/etc/logrotate.d/dmarc-ingest`
 
 ```conf
 /var/log/dmarc-ingest/*.log {
@@ -390,63 +366,30 @@ sudo systemctl enable --now dmarc-ingest.timer
     missingok
     notifempty
     create 0640 dmarc-ingest dmarc-ingest
-    sharedscripts
-    postrotate
-        systemctl kill -s HUP dmarc-ingest.service 2>/dev/null || true
-    endscript
 }
-```
-
-### journald
-
-```bash
-journalctl -u dmarc-ingest -f
-journalctl -u dmarc-ingest --since "1 hour ago"
 ```
 
 ---
 
 ## Syslog-Integration
 
-### rsyslog – Input & DMARC-Logfile
+Das Script sendet DMARC-Records mit dem Präfix `DMARC: org=...`.
 
-`/etc/rsyslog.d/10-dmarc-ingest.conf`:
+### rsyslog (`/etc/rsyslog.d/10-dmarc-ingest.conf`)
 
 ```conf
-# Netzwerk-Inputs (UDP/TCP)
+# Optional: Lokalen UDP/TCP-Empfang aktivieren (falls nicht bereits global aktiv)
 module(load="imudp")
 input(type="imudp" port="514")
-module(load="imtcp")
-input(type="imtcp" port="514")
 
-# DMARC_DATA in separate Datei schreiben
-if $programname == 'DMARC_DATA' then {
+# DMARC-Records in eigene Datei leiten
+if $msg contains 'DMARC: org=' then {
     action(
         type="omfile"
-        file="/var/log/dmarc-ingest/dmarc_records.log"
-        template="RSYSLOG_TraditionalFileFormat"
+        file="/var/log/dmarc-ingest/dmarc_syslog.log"
     )
     stop
 }
-```
-
-### syslog-ng – Beispielkonfiguration
-
-```conf
-source s_net {
-    udp(ip(0.0.0.0) port(514));
-    tcp(ip(0.0.0.0) port(514));
-};
-
-filter f_dmarc { program("DMARC_DATA"); };
-
-destination d_dmarc {
-    file("/var/log/dmarc-ingest/dmarc_records.log"
-        template("${ISODATE} ${HOST} ${PROGRAM} ${MSG}\n")
-    );
-};
-
-log { source(s_net); filter(f_dmarc); destination(d_dmarc); };
 ```
 
 ---
@@ -455,294 +398,167 @@ log { source(s_net); filter(f_dmarc); destination(d_dmarc); };
 
 ```text
 /opt/dmarc-ingest/
-  ├── dmarc-ingest.py         # Hauptskript
-  └── config.ini 
+  ├── dmarc-ingest.py          # Hauptskript
+  └── config.ini               # Konfiguration (Modus 0600)
 
 /var/lib/dmarc-ingest/
-  ├── reports/
-  │   ├── 20241204_all.json
-  │   └── 20241205_all.json
-  └── processed.json          # Duplikat-Erkennung
+  ├── reports/                 # Tagesarchive (NDJSON / JSON)
+  │   ├── 20261016_all.json
+  │   └── 20261017_all.json
+  └── processed.json           # Schneller Deduplizierungs-Cache
 
 /var/log/dmarc-ingest/
-  ├── dmarc-ingest.log        # Script-Log
-  ├── dmarc_data.log          # Text-Log
-  └── dmarc_records.log       # Syslog-Records (optional)
+  ├── dmarc-ingest.log         # Applikations- und Fehler-Log
+  └── dmarc_data.log           # Optionales Pipe-getrenntes Record-Log
 
 /run/lock/
-  └── dmarc-ingest.lock       # Lockfile
+  └── dmarc-ingest.lock        # Lockfile mit PID während der Laufzeit
 ```
 
 ---
 
 ## Berechtigungen
 
-| Pfad                                 | Besitzer                     | Modus | Zweck                     |
-|-------------------------------------|------------------------------|-------|---------------------------|
-| `/etc/dmarc-ingest`                 | root:dmarc-ingest            | 0750  | Konfigurationsverzeichnis |
-| `/etc/dmarc-ingest/config.ini`      | root:dmarc-ingest            | 0640  | Zugangsdaten/Secrets      |
-| `/opt/dmarc-ingest`                 | dmarc-ingest:dmarc-ingest    | 0750  | Programmdateien           |
-| `/var/lib/dmarc-ingest`             | dmarc-ingest:dmarc-ingest    | 0770  | Laufzeitdaten/Reports     |
-| `/var/log/dmarc-ingest`             | dmarc-ingest:dmarc-ingest    | 0770  | Logdateien                |
-| `/run/lock/dmarc-ingest.lock`       | dmarc-ingest:dmarc-ingest    | 0640  | Lockfile                  |
+| Pfad | Besitzer | Modus | Zweck |
+| :--- | :--- | :--- | :--- |
+| `/opt/dmarc-ingest` | `dmarc-ingest:dmarc-ingest` | `0750` | Programmverzeichnis |
+| `/opt/dmarc-ingest/config.ini` | `dmarc-ingest:dmarc-ingest` | `0600` | Konfiguration & IMAP-Passwort |
+| `/var/lib/dmarc-ingest` | `dmarc-ingest:dmarc-ingest` | `0750` | Laufzeitdaten, Cache & JSON-Reports |
+| `/var/log/dmarc-ingest` | `dmarc-ingest:dmarc-ingest` | `0750` | Logdateien |
+| `/run/lock/dmarc-ingest.lock` | `dmarc-ingest:dmarc-ingest` | `0644` | Lockfile (wird automatisch angelegt) |
 
 ---
 
 ## Beispiele
 
-### 1. DMARC-Record im Syslog-Format
+### 1. Ausgabe im Syslog (`DMARC_DATA`)
 
 ```text
-Dec  5 10:30:15 mx01 DMARC_DATA[1234]: org=Google report_id=1234567890 domain=example.com policy=reject ip=203.0.113.45 count=17 disposition=reject dkim=pass spf=pass header_from=example.com begin=1720569600 end=1720656000 dkim_domain=example.com dkim_result=pass spf_domain=_spf.example.com spf_result=pass
+DMARC: org=google.com report_id=1234567890 domain=example.com policy=reject ip=203.0.113.45 count=17 disposition=reject dkim=pass spf=pass header_from=example.com begin=1720569600 end=1720656000 dkim_domain=example.com dkim_result=pass spf_domain=example.com spf_result=pass
 ```
 
-### 2. NDJSON-Beispiel
+### 2. Ausgabe im Text-Log (`dmarc_data.log`)
 
-```json
-{
-  "org": "Google",
-  "report_id": "1234567890",
-  "domain": "example.com",
-  "policy": "reject",
-  "source_ip": "203.0.113.45",
-  "count": 17,
-  "disposition": "reject",
-  "dkim": "pass",
-  "spf": "pass",
-  "header_from": "example.com",
-  "begin": "2024-10-01T00:00:00Z",
-  "end": "2024-10-01T23:59:59Z",
-  "ingest_timestamp": "2024-12-05T10:30:15Z"
-}
-```
-
-### 3. Minimaler DMARC-XML-Auszug (Quelle)
-
-```xml
-<feedback>
-  <report_metadata>
-    <org_name>Example ISP</org_name>
-    <report_id>abc-123</report_id>
-    <date_range>
-      <begin>1720569600</begin>
-      <end>1720656000</end>
-    </date_range>
-  </report_metadata>
-  <policy_published>
-    <domain>example.com</domain>
-    <p>reject</p>
-  </policy_published>
-  <record>
-    <row>
-      <source_ip>203.0.113.45</source_ip>
-      <count>17</count>
-      <policy_evaluated>
-        <disposition>reject</disposition>
-        <dkim>pass</dkim>
-        <spf>pass</spf>
-      </policy_evaluated>
-    </row>
-    <identifiers>
-      <header_from>example.com</header_from>
-    </identifiers>
-    <auth_results>
-      <dkim>
-        <domain>example.com</domain>
-        <result>pass</result>
-      </dkim>
-      <spf>
-        <domain>_spf.example.com</domain>
-        <result>pass</result>
-      </spf>
-    </auth_results>
-  </record>
-</feedback>
+```text
+2026-10-17T14:22:10.123456 | org=google.com | report_id=1234567890 | domain=example.com | policy=reject | ip=203.0.113.45 | count=17 | disposition=reject | dkim=pass | spf=pass | header_from=example.com | dkim_domain=example.com | dkim_result=pass | spf_domain=example.com | spf_result=pass
 ```
 
 ---
 
 ## Troubleshooting
 
-### Übersicht (Mermaid-Flow)
-
 ```mermaid
 flowchart TD
-    A[Problem] --> B{Service läuft?}
-    B -->|Nein| C[systemctl status dmarc-ingest]
-    C --> D[Logs prüfen]
-    B -->|Ja| E{Reports im IMAP?}
-    E -->|Nein| F[IMAP-Konto/Zugang prüfen]
-    E -->|Ja| G{Syslog-Events vorhanden?}
-    G -->|Nein| H[rsyslog/syslog-ng/Firewall prüfen]
-    G -->|Ja| I{Parsing-Fehler gemeldet?}
-    I -->|Ja| J[XML-Datei isolieren & lokal testen]
-    I -->|Nein| K[Analyse im SIEM / JSON]
+    A[Problem] --> B{Läuft der Timer/Job?}
+    B -->|Nein| C[systemctl status dmarc-ingest.service]
+    C --> D[dmarc-ingest.log prüfen]
+    B -->|Ja| E{Ungelesene Mails im Postfach?}
+    E -->|Nein| F[IMAP-Zugang & Ordner prüfen]
+    E -->|Ja| G{Werden Daten ausgegeben?}
+    G -->|Nein| H[Ist dry_run = no gesetzt?]
+    G -->|Ja| I{Parsing-Fehler im Log?}
+    I -->|Ja| J[Mail-Anhang speichern & mit --file lokal testen]
+    I -->|Nein| K[Analyse im SIEM / rsyslog]
 ```
 
-### Häufige Probleme
+### Häufige Ursachen
 
-**IMAP**
-
-- Login schlägt fehl → Host/Port/SSL/Auth prüfen
-- Archivordner verschwindet → Rechte oder Namenskonvention (INBOX/Processed vs INBOX.Processed)
-
-**Syslog**
-
-- keine DMARC_DATA-Einträge → rsyslog/syslog-ng-Konfiguration prüfen, Ports freigeben, SELinux/AppArmor prüfen
-- UDP-Pakete gehen verloren → Umstieg auf TCP erwägen
-
-**JSON/NDJSON**
-
-- Datei wächst stark → `days_to_keep` und Logrotation prüfen, ggf. NDJSON verwenden
-- JSON-Einträge fehlen → `dry_run` noch aktiv?
-
-**Lockfile**
-
-- Fehlermeldung „Job läuft bereits“ → prüfen, ob ein Prozess tatsächlich läuft:
-  ```bash
-  ps aux | grep dmarc-ingest
-  ```
-  Falls nein, Lockfile löschen:
-  ```bash
-  sudo rm /run/lock/dmarc-ingest.lock
-  ```
+- **IMAP-Fehler `Konnte IMAP Ordner 'INBOX/Processed' nicht anlegen`:**
+  Einige Mailserver (z. B. Courier/Cyrus) nutzen einen Punkt statt eines Schrägstrichs als Trennzeichen. In der `config.ini` auf `INBOX.Processed` ändern.
+- **Passwort-Fehler bei Sonderzeichen (`InterpolationSyntaxError`):**
+  Enthält das IMAP-Passwort ein `%`-Zeichen, muss es in der `config.ini` verdoppelt werden (`%%`).
+- **Keine Schreibvorgänge trotz gefundener Mails:**
+  Prüfen, ob in der `config.ini` noch `dry_run = yes` aktiviert ist.
 
 ---
 
 ## Sicherheit & Härtung
 
-- **Least Privilege**
-  - dedizierter User `dmarc-ingest` ohne Login-Shell
-  - nur Schreibrechte auf `/var/lib/dmarc-ingest` und `/var/log/dmarc-ingest`
-
-- **Transport Security**
-  - IMAPS (Port 993) verwenden
-  - TLS-Versionen gemäss Unternehmensstandard einschränken
-
-- **XML-Sicherheit**
-  - `defusedxml` nutzen, um typische XML-basierte Angriffe (Entity Expansion, Billion Laughs etc.) zu entschärfen
-  - optional Größen- und Tiefenlimits einführen
-
-- **Replay-Schutz**
-  - durch `processed_db` werden identische Reports nicht mehrfach verarbeitet
-  - `days_to_keep` stellt sicher, dass sehr alte Reports nicht ewig berücksichtigt werden
-
-- **Monitoring**
-  - `journalctl -u dmarc-ingest` in zentrale Überwachung integrieren
-  - SIEM-Alarmierung auf ungewöhnliche Muster und Parsing-Fehler
+- **Schutz vor XML-Bomben:** Durch den Einsatz von `defusedxml` werden XML-Angriffe wie *Billion Laughs* oder *External Entity Expansion (XXE)* blockiert.
+- **Schutz vor Decompression Bombs:** Beim Entpacken von `.gz`-, `.zip`- und `.tar.gz`-Archiven im Arbeitsspeicher greift ein hartes Limit von 50 MB (`MAX_XML_SIZE`), um Out-of-Memory-Abstürze durch manipulierte Archive zu verhindern.
+- **Transaktionssicherheit im Postfach:** Mails werden mit `BODY.PEEK[]` abgerufen. Das `\Seen`-Flag oder das Verschieben ins Archiv erfolgt erst, wenn das Parsing und Log-Schreiben fehlerfrei abgeschlossen sind.
 
 ---
 
 ## Leistung & Betriebshinweise
 
-- **Hohe Volumina**
-  - `json_mode = ndjson` nutzen
-  - `max_emails_per_run` an Volumen anpassen (z. B. 200)
-  - ggf. Zeitfenster für IMAP-Jobs außerhalb der Hauptlast
-
-- **Ressourcenverbrauch**
-  - Parsing großer ZIPs benötigt mehr RAM; je nach Umgebung Timer-Läufe staffeln
-  - NDJSON vermeidet Laden der kompletten Tagesdatei
-
-### Beispiel-Monitoring
-
-```bash
-# Anzahl Records pro Tag:
-grep -c "DMARC_DATA" /var/log/dmarc-ingest/dmarc_records.log
-
-# Größe des Report-Verzeichnisses:
-du -sh /var/lib/dmarc-ingest/reports/
-
-# Check: letzte Datei
-ls -ltr /var/lib/dmarc-ingest/reports/
-```
+- **Hohe Volumina (1.000+ Domains):** Unbedingt `json_mode = ndjson` verwenden. Dadurch werden neue Datensätze per Datei-Append geschrieben, ohne die bestehende Tagesdatei in den RAM laden zu müssen.
+- **Kleiner Deduplizierungs-Cache:** Über `processed_days_to_keep = 3` bleibt die `processed.json` dauerhaft schlank, während die eigentlichen JSON-Tagesreports über `days_to_keep = 30` unabhängig davon länger archiviert werden können.
 
 ---
 
 ## Roadmap / Ideen
 
-- native Elasticsearch/Opensearch-Integration
-- Prometheus-Exporter (Metriken zu Counts, Fehlern, Laufzeiten)
-- Web-UI für Statusübersicht und manuelles Re-Processing
-- Multi-Tenant-/Multi-Domain-Konfiguration
-- REST-API für Abfragen/Aggregationen
+- [ ] Optionale Unterstützung für mehrere DKIM-Signaturen pro Record-Block
+- [ ] Prometheus-Metrik-Export (Textfile-Collector für Node-Exporter)
+- [ ] Direkter Webhook-/HTTP-Output für Elasticsearch / Splunk HEC
 
 ---
 
 ## Lizenz
 
-Dieses Projekt steht unter der **MIT License**.
-
-```text
-SPDX-License-Identifier: MIT
-```
-
-Siehe `LICENSE` Datei im Repository.
+Dieses Projekt steht unter der **MIT License** (`SPDX-License-Identifier: MIT`).  
+Weitere Details siehe `LICENSE`-Datei im Repository.
 
 ---
 
 ## Changelog
+
+### [1.2.2] – 2026-10-17
+
+**Added**
+- Schutz gegen Decompression-Bomben (`MAX_XML_SIZE` = 50 MB Limit für GZIP/ZIP/TAR)
+- Zentrale `emit_records()`-Ausgabesteuerung
+- Explizite Sicherheitswarnung im Log, falls `defusedxml` auf dem System fehlt
+
+**Improved**
+- IMAP-Abruf nutzt nun `BODY.PEEK[]` statt `RFC822` (verhindert Datenverlust bei Abbruch und lässt das Postfach im `dry_run`-Modus unberührt)
+- Deduplizierung erfolgt nun granular pro einzelnem XML-Report statt pauschal pro E-Mail
+- Atomares Schreiben (`os.replace`) auch für JSON-Tagesdateien im Array-Modus
+
+**Fixed**
+- TCP-Syslog-Framing repariert (`terminator = "\n"` ergänzt)
+- `write_text_log` funktioniert nun auch unabhängig davon, ob `syslog` aktiviert ist
+- Fehlertolerante UTF-8-Dekodierung (`errors="replace"`) bei defekten Zeichen in Provider-Reports
+
 ### [1.2.1] – 2025-12-20
 
 **Added**
-
-- erweitertem Text-Log mit vollständigen DMARC-Feldern
-- verbessertes Error-Handling bei ZIP/TAR/XML
+- Erweitertes Text-Log mit vollständigen DMARC-Feldern
+- Verbessertes Error-Handling bei ZIP/TAR/XML
 - PID-Schreibung im Lockfile
 
 **Improved**
-
-- Dedupe-Performance optimiert (processed_days_to_keep)
+- Dedupe-Performance optimiert (`processed_days_to_keep`)
 - Purge nur noch beim Speichern → kleiner & schneller Cache
-- stabileres IMAP Folder Handling
-- stabilerer NDJSON-Writer
+- Stabileres IMAP-Folder-Handling & NDJSON-Writer
 
 **Fixed**
-
-- doppelte Syslog-Einträge entfernt
-- korrigierte JSON-Schreibfehler bei fehlenden Unterordnern
-- robustere MIME-Header-Dekodierung
+- Doppelte Syslog-Einträge entfernt
+- Korrigierte JSON-Schreibfehler bei fehlenden Unterordnern
+- Robustere MIME-Header-Dekodierung
 
 ### [1.2.0] – 2025-12-05
 
 **Added**
-
-- NDJSON-Unterstützung (json_mode = ndjson)
+- NDJSON-Unterstützung (`json_mode = ndjson`)
 - Lockfile-Mechanismus (`lock_file`) zum Schutz vor Parallel-Jobs
-- automatische Bereinigung alter `processed_db`-Einträge gemäß `days_to_keep`
-
-**Improved**
-
-- erweiterte Dokumentation (PRO README)
-- Systemd-Sandboxing ergänzt
-- verbesserte Fehlerbehandlung bei IMAP-Verbindungsfehlern
+- Automatische Bereinigung alter `processed_db`-Einträge
 
 ### [1.1.0] – 2025-10-15
 
 **Added**
-
 - Deduplizierung von Reports über `processed_db`
-- konfigurierbare Aufbewahrungsfristen (`days_to_keep`)
-- erweitertes Logging mit klaren Record- und Script-Logs
+- Konfigurierbare Aufbewahrungsfristen (`days_to_keep`)
 
 ### [1.0.0] – 2025-09-10
 
-**Initial Release**
-
-- IMAP-Abruf mit Archivierung
-- Syslog-Export (UDP/TCP)
-- JSON-Tagesarchive
-- Basis-Systemd-Integration
+- Initial Release (IMAP-Abruf, Syslog-Export, JSON-Tagesarchive)
 
 ---
 
 ## Contribution
 
-Beiträge sind willkommen.
-
-- Issues & Feature-Requests bitte im GitHub-Repository eröffnen
-- Pull Requests mit:
-  - verständlichen Commit-Messages
-  - Tests (falls möglich)
-  - aktualisierter Dokumentation (README / CHANGELOG)
- eröffnen
+Beiträge sind jederzeit willkommen!
+- Issues & Feature-Requests bitte direkt im GitHub-Repository eröffnen.
+- Pull Requests gerne mit kurzer Beschreibung und aktualisierter Dokumentation einreichen.
