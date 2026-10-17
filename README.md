@@ -514,7 +514,7 @@ flowchart TD
 
 - [ ] Optionale Unterstützung für mehrere DKIM-Signaturen pro Record-Block
 - [ ] Prometheus-Metrik-Export (Textfile-Collector für Node-Exporter)
-- [ ] Direkter Webhook-/HTTP-Output für Elasticsearch / Splunk HEC
+- [ ] Direkter Webhook-/HTTP-Output für Elasticsearch / Splunk 
 
 ---
 
