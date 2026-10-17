@@ -1,12 +1,16 @@
-; ===============================
+; ======================================================================
 ; dmarc-collector - config.ini
-; ===============================
+; Wichtig: Dateirechte auf 600 setzen (chmod 600 config.ini),
+;          da hier das IMAP-Passwort im Klartext steht!
+; ======================================================================
 
 [imap]
 host = imap.example.com
 user = dmarc-reports@example.com
+; Hinweis: Falls das Passwort ein %-Zeichen enthält, als %% schreiben!
 password = ***CHANGE_ME***
 folder = INBOX
+; Je nach Mailserver INBOX/Processed oder INBOX.Processed
 archive_folder = INBOX/Processed
 
 
@@ -14,6 +18,7 @@ archive_folder = INBOX/Processed
 enable = yes
 host = 127.0.0.1
 port = 514
+; udp oder tcp (bei lokalem Collector auf 127.0.0.1 ist udp völlig ausreichend)
 protocol = udp
 
 
@@ -21,10 +26,10 @@ protocol = udp
 save_json = yes
 xml_output_dir = /var/lib/dmarc-collector/reports
 
-; gilt für JSON Tagesfiles und processed_db
+; Aufbewahrungsdauer für die JSON-Tagesdateien in xml_output_dir (in Tagen)
 days_to_keep = 30
 
-; CACHE: Wie lange merken wir uns "schon gesehene" Reports?
+; CACHE: Wie lange merken wir uns die Report-IDs in der processed_db? (in Tagen)
 processed_days_to_keep = 3
 
 dry_run = no
@@ -33,16 +38,18 @@ log_records = yes
 write_text_log = yes
 text_log_path = /var/log/mmbb/dmarc/dmarc_data.log
 
-json_mode = array
+; 'ndjson' (empfohlen für hohe Performance & Splunk/ELK) oder 'array'
+json_mode = ndjson
 
-; Duplikate verhindern
+; Datenbank für bereits verarbeitete Report-IDs (Duplikat-Schutz)
 processed_db = /var/lib/dmarc-collector/processed.json
 
-; Lockfile, damit nur ein Job parallel läuft
+; Lockfile verhindert parallele Ausführung bei überlappenden Läufen
 lock_file = /run/lock/dmarc-collector.lock
 
 
 [logging]
+; Bei Cronjob-Betrieb auf 'no' setzen, sonst schickt Cron bei jedem Lauf eine E-Mail!
 console = yes
 enable_file = yes
-file_path = /var/log/dmarc/dmarc-collector.log
+file_path = /var/log/mmbb/dmarc/dmarc-collector.log
