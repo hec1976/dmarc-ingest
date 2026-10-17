@@ -1,7 +1,7 @@
 # dmarc-ingest
 
 <p align="center">
-  <img src="docs/banner.png" alt="dmarc-ingest Header Banner" width="100%">
+  <img src="doc/banner.png" alt="dmarc-ingest Header Banner" width="100%">
 </p>
 
 <p align="center">
