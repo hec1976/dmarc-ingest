@@ -1,19 +1,18 @@
 # dmarc-ingest
 
-```text
-██████╗ ███╗   ███╗ █████╗ ██████╗  ██████╗     ██╗███╗   ██╗ ██████╗ ███████╗███████╗████████╗
-██╔══██╗████╗ ████║██╔══██╗██╔══██╗██╔════╝     ██║████╗  ██║██╔════╝ ██╔════╝██╔════╝╚══██╔══╝
-██║  ██║██╔████╔██║███████║██████╔╝██║          ██║██╔██╗ ██║██║  ███╗█████╗  ███████╗   ██║
-██║  ██║██║╚██╔╝██║██╔══██║██╔══██╗██║          ██║██║╚██╗██║██║   ██║██╔══╝  ╚════██║   ██║
-██████╔╝██║ ╚═╝ ██║██║  ██║██║  ██║╚██████╗     ██║██║ ╚████║╚██████╔╝███████╗███████║   ██║
-╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝     ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚══════╝   ╚═╝
-```
+<p align="center">
+  <img src="docs/banner.png" alt="dmarc-ingest Header Banner" width="100%">
+</p>
 
-![Status](https://img.shields.io/badge/status-stable-brightgreen)
-![Version](https://img.shields.io/badge/version-1.3.0-blue)
-![License](https://img.shields.io/badge/license-MIT-purple)
-![Python](https://img.shields.io/badge/python-3.6%2B-yellow)
-![Security](https://img.shields.io/badge/CodeQL-Security%20Scan-blueviolet)
+<p align="center">
+  <img src="https://img.shields.io/badge/status-stable-brightgreen" alt="Status">
+  <img src="https://img.shields.io/badge/version-1.3.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/license-MIT-purple" alt="License">
+  <img src="https://img.shields.io/badge/python-3.6%2B-yellow" alt="Python">
+  <img src="https://img.shields.io/badge/CodeQL-Security%20Scan-blueviolet" alt="Security">
+</p>
+
+
 
 > **Projekt:** dmarc-ingest  
 > **Beschreibung:** High-Performance DMARC RUA Ingest- und Normalisierungs-Engine (IMAP → Syslog / NDJSON / JSON / Textlog)  
