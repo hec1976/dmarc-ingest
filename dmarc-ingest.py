@@ -3,15 +3,6 @@
 # High-Performance DMARC Parser & Forwarder
 #
 # IMAP -> DMARC XML (.xml/.gz/.zip/.tgz/.tar.gz) -> Syslog + JSON (daily) + optional Textlog
-#
-# Funktionen:
-#  - IMAP Modus (Standard) mit BODY.PEEK[] (verhindert Datenverlust bei Absturz)
-#  - File Modus (--file)
-#  - Streaming zu Syslog (Splunk ready, inkl. TCP-Newline-Fix)
-#  - Optimierter RAM-Cache zur Duplikat-Erkennung (Hoster-tauglich für 1000+ Domains)
-#  - Schutz gegen XML- und Decompression-Bomben (ZIP/GZIP/TAR-Größenlimit)
-#  - Trennung von Datei-Archivierung und Cache-Bereinigung
-#  - Lockfile, damit nur ein Job gleichzeitig läuft
 
 import imaplib
 import email
@@ -56,7 +47,7 @@ except ImportError:
 # ======================================================================
 # Metadaten & Konstanten
 # ======================================================================
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 __author__ = "Claude Heinzmann"
 __license__ = "MIT"
 
@@ -88,7 +79,7 @@ LOGLEVEL = _valid_levels.get(_loglevel_upper, logging.INFO)
 
 
 # ======================================================================
-# Konfiguration einlesen (cron-sicher, relativ zum Script)
+# Konfiguration einlesen
 # ======================================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -115,7 +106,6 @@ for section in required_sections:
         )
         sys.exit(1)
 
-# IMAP Konfig nur lesen, wenn nötig
 if config.has_section('imap'):
     IMAP_HOST = config.get("imap", "host", fallback=None)
     IMAP_USER = config.get("imap", "user", fallback=None)
@@ -131,18 +121,17 @@ SYSLOG_PORT = config.getint("syslog", "port", fallback=514)
 SYSLOG_PROTO = config.get("syslog", "protocol", fallback="tcp").lower()
 
 SAVE_JSON = config.getboolean("options", "save_json", fallback=True)
-XML_OUTPUT_DIR = config.get("options", "xml_output_dir", fallback="/tmp/dmarc_xml")
-DAYS_TO_KEEP = config.getint("options", "days_to_keep", fallback=7)
-CACHE_DAYS_TO_KEEP = config.getint("options", "processed_days_to_keep", fallback=DAYS_TO_KEEP)
+XML_OUTPUT_DIR = config.get("options", "xml_output_dir", fallback="/var/lib/dmarc-ingest/reports")
+DAYS_TO_KEEP = config.getint("options", "days_to_keep", fallback=30)
+CACHE_DAYS_TO_KEEP = config.getint("options", "processed_days_to_keep", fallback=3)
 DRY_RUN = config.getboolean("options", "dry_run", fallback=False)
 LOG_RECORDS = config.getboolean("options", "log_records", fallback=True)
 WRITE_TEXT_LOG = config.getboolean("options", "write_text_log", fallback=False)
-TEXT_LOG_PATH = config.get("options", "text_log_path", fallback="dmarc_data.log")
-# Standard auf ndjson für High-Performance, sofern in config.ini nicht anders angegeben
+TEXT_LOG_PATH = config.get("options", "text_log_path", fallback="/var/log/dmarc-ingest/dmarc_data.log")
 JSON_MODE = config.get("options", "json_mode", fallback="ndjson").lower()
 
-PROCESSED_DB = config.get("options", "processed_db", fallback="/var/lib/dmarc-collector/processed.json")
-LOCK_FILE = config.get("options", "lock_file", fallback="/run/lock/dmarc-collector.lock")
+PROCESSED_DB = config.get("options", "processed_db", fallback="/var/lib/dmarc-ingest/processed.json")
+LOCK_FILE = config.get("options", "lock_file", fallback="/run/lock/dmarc-ingest.lock")
 
 CONSOLE_LOG = config.getboolean("logging", "console", fallback=True)
 
@@ -167,7 +156,7 @@ if CONSOLE_LOG:
     logger_script.addHandler(sh)
 
 if config.getboolean("logging", "enable_file", fallback=False):
-    file_path = config.get("logging", "file_path", fallback="dmarc-collector.log")
+    file_path = config.get("logging", "file_path", fallback="/var/log/dmarc-ingest/dmarc-ingest.log")
     try:
         base_dir = os.path.dirname(file_path) or "."
         os.makedirs(base_dir, exist_ok=True)
@@ -191,7 +180,6 @@ if SYSLOG_ENABLED and not DRY_RUN:
                 address=(SYSLOG_HOST, SYSLOG_PORT)
             )
         
-        # WICHTIG: Bei TCP-Syslog zwingend Zeilenumbruch als Trennzeichen setzen
         if SYSLOG_PROTO == "tcp":
             syslog_handler.terminator = "\n"
             
@@ -212,7 +200,6 @@ if not _USING_DEFUSEDXML:
 def _safe_text(x, default=""):
     return x if x is not None else default
 
-
 def _decode_mime_header(raw):
     if not raw:
         return ""
@@ -222,7 +209,6 @@ def _decode_mime_header(raw):
         return raw
     except Exception:
         return raw
-
 
 def safe_select(mail, folder):
     typ, _ = mail.select(folder)
@@ -235,7 +221,6 @@ def safe_select(mail, folder):
         if typ != 'OK':
             raise RuntimeError("Konnte IMAP Ordner '{}' nicht selektieren.".format(folder))
 
-
 def ensure_folder_exists(mail, folder, base_folder):
     if not folder:
         return
@@ -245,7 +230,6 @@ def ensure_folder_exists(mail, folder, base_folder):
         if create_typ != 'OK':
             raise RuntimeError("Konnte IMAP Ordner '{}' nicht anlegen.".format(folder))
     mail.select(base_folder)
-
 
 def write_record_to_file(record):
     try:
@@ -278,23 +262,22 @@ def write_record_to_file(record):
     except Exception as e:
         logger_script.error("[DMARC] Fehler beim Schreiben der Datei-Ausgabe: {}".format(e))
 
-
 def move_message(mail, msg_id, target_folder):
     if not target_folder:
         return False
-    if isinstance(msg_id, bytes):
-        msg_id = msg_id.decode('ascii', errors='ignore')
-    else:
-        msg_id = str(msg_id)
+    msg_id = msg_id.decode('ascii', errors='ignore') if isinstance(msg_id, bytes) else str(msg_id)
         
     typ, _ = mail.copy(msg_id, target_folder)
     if typ == 'OK':
-        mail.store(msg_id, '+FLAGS', '\\Deleted')
-        return True
+        store_typ, _ = mail.store(msg_id, '+FLAGS', '\\Deleted')
+        if store_typ == 'OK':
+            return True
+        else:
+            logger_script.warning("[IMAP] Konnte Mail {} nach Copy nicht als gelöscht markieren.".format(msg_id))
+            return False
     else:
         logger_script.warning("[IMAP] COPY nach '{}' fehlgeschlagen für ID {}.".format(target_folder, msg_id))
         return False
-
 
 def _strip_namespaces(root):
     try:
@@ -305,7 +288,6 @@ def _strip_namespaces(root):
     except Exception:
         pass
     return root
-
 
 def parse_dmarc_report(xml_data):
     results = []
@@ -349,7 +331,6 @@ def parse_dmarc_report(xml_data):
         logger_script.exception("[DMARC] Fehler beim Parsen von XML: {}".format(e))
     return []
 
-
 def log_record_to_syslog(record):
     log_line = (
         "org={} report_id={} domain={} policy={} ip={} count={} disposition={} dkim={} "
@@ -374,11 +355,9 @@ def log_record_to_syslog(record):
     )
     logger_data.info(log_line)
 
-
 def is_supported_archive(filename):
     fn = (filename or "").lower()
     return any(fn.endswith(ext) for ext in [".gz", ".zip", ".tgz", ".tar.gz"])
-
 
 def extract_xml_from_archive(filename, payload):
     xml_list = []
@@ -421,7 +400,6 @@ def extract_xml_from_archive(filename, payload):
         logger_script.error("[DMARC] Fehler beim Entpacken von {}: {}".format(filename, e))
     return xml_list
 
-
 def load_existing_json(path):
     if not os.path.exists(path):
         return []
@@ -435,7 +413,6 @@ def load_existing_json(path):
         logger_script.error("[DMARC] Fehler beim Lesen von {}: {}".format(path, e))
         return []
 
-
 def write_json(path, data):
     base = os.path.dirname(path) or "."
     os.makedirs(base, exist_ok=True)
@@ -443,7 +420,6 @@ def write_json(path, data):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
-
 
 def append_to_daily_json(records):
     if not records:
@@ -468,7 +444,6 @@ def append_to_daily_json(records):
     except Exception as e:
         logger_script.exception("[DMARC] Fehler beim Schreiben der JSON Datei: {}".format(e))
 
-
 def cleanup_old_reports():
     try:
         if not os.path.isdir(XML_OUTPUT_DIR):
@@ -487,7 +462,6 @@ def cleanup_old_reports():
                 logger_script.error("[DMARC] Fehler beim Löschen von {}: {}".format(fname, e))
     except Exception as e:
         logger_script.error("[DMARC] Fehler beim Aufräumen alter Reports: {}".format(e))
-
 
 def _collect_xmls_from_message(msg):
     xml_texts = []
@@ -524,16 +498,14 @@ def _collect_xmls_from_message(msg):
 
 
 # ======================================================================
-# Duplikat Erkennung (Optimiert für High-Performance)
+# Duplikat Erkennung (Tracking nach Ingest-Zeitpunkt)
 # ======================================================================
 
-_processed_cache = set()
-
+_processed_cache = {}
 
 def purge_old_processed():
     """
-    Bereinigt den RAM-Cache basierend auf CACHE_DAYS_TO_KEEP.
-    Dies hält die processed_db klein und schnell.
+    Bereinigt den RAM-Cache basierend auf dem Ingest-Timestamp.
     """
     global _processed_cache
 
@@ -543,21 +515,12 @@ def purge_old_processed():
     now_ts = int(time.time())
     cutoff_ts = now_ts - CACHE_DAYS_TO_KEEP * 86400
 
-    keep = set()
+    keep = {}
     removed = 0
 
-    for key in _processed_cache:
-        try:
-            parts = key.split("|")
-            end_str = parts[3] if len(parts) >= 4 else ""
-            end_ts = int(end_str)
-        except Exception:
-            # Beschädigte oder nicht-nummerische Keys behalten, um Re-Processing-Loops zu vermeiden
-            keep.add(key)
-            continue
-
-        if end_ts >= cutoff_ts:
-            keep.add(key)
+    for key, ingest_ts in _processed_cache.items():
+        if ingest_ts >= cutoff_ts:
+            keep[key] = ingest_ts
         else:
             removed += 1
 
@@ -570,24 +533,27 @@ def purge_old_processed():
 
     _processed_cache = keep
 
-
 def load_processed_cache():
     """
-    Lädt die DB nur in den RAM. Kein Aufräumen hier -> Maximale Startgeschwindigkeit.
+    Lädt die DB in den RAM. Migriert alte Listen-Caches (v1.2.x) automatisch in Dicts (v1.3+).
     """
     global _processed_cache
     if not PROCESSED_DB or not os.path.exists(PROCESSED_DB):
-        _processed_cache = set()
+        _processed_cache = {}
         return
     try:
         with open(PROCESSED_DB, "r", encoding="utf-8") as f:
-            items = json.load(f)
-            _processed_cache = set(items)
+            data = json.load(f)
+            now_ts = int(time.time())
+            if isinstance(data, list):
+                _processed_cache = {key: now_ts for key in data}
+                logger_script.info("[DMARC] processed_db (Liste) erfolgreich in neues Format migriert.")
+            else:
+                _processed_cache = data
         logger_script.debug("[DMARC] processed_db geladen: {} Einträge".format(len(_processed_cache)))
     except Exception as e:
         logger_script.error("[DMARC] Konnte processed_db nicht laden ({}), starte mit leerem Cache: {}".format(PROCESSED_DB, e))
-        _processed_cache = set()
-
+        _processed_cache = {}
 
 def save_processed_cache():
     """
@@ -603,13 +569,12 @@ def save_processed_cache():
         tmp = PROCESSED_DB + ".tmp"
 
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(sorted(_processed_cache), f, indent=2, ensure_ascii=False)
+            json.dump(_processed_cache, f, indent=2, ensure_ascii=False)
 
         os.replace(tmp, PROCESSED_DB)
         logger_script.debug("[DMARC] processed_db gespeichert: {} Einträge".format(len(_processed_cache)))
     except Exception as e:
         logger_script.error("[DMARC] Konnte processed_db nicht speichern: {}".format(e))
-
 
 def make_report_key(records):
     if not records:
@@ -622,7 +587,6 @@ def make_report_key(records):
         _safe_text(r.get("end")),
     )
 
-
 def is_duplicate_report(records):
     if DRY_RUN:
         return False
@@ -631,14 +595,14 @@ def is_duplicate_report(records):
         return False
     if key in _processed_cache:
         return True
-    _processed_cache.add(key)
+    
+    # Speichere die Ingest-Zeit, damit verzögerte Reports nicht sofort purgen
+    _processed_cache[key] = int(time.time())
     return False
-
 
 def emit_records(records):
     """
     Zentrale Ausgabefunktion für Syslog, Text-Log und Tages-JSON.
-    Sauber getrennt, damit Text-Log auch ohne aktives Syslog funktioniert.
     """
     if not records or DRY_RUN:
         return
@@ -659,7 +623,6 @@ def emit_records(records):
 # ======================================================================
 
 _lock_fh = None
-
 
 def acquire_lock():
     global _lock_fh
@@ -696,7 +659,6 @@ def acquire_lock():
     except Exception:
         pass
 
-
 def release_lock():
     global _lock_fh
     if not _lock_fh:
@@ -710,7 +672,6 @@ def release_lock():
     except Exception:
         pass
     _lock_fh = None
-
 
 atexit.register(release_lock)
 
@@ -730,7 +691,6 @@ def connect_imap():
     except Exception as e:
         logger_script.error("[IMAP] Login fehlgeschlagen: {}".format(e))
         sys.exit(1)
-
 
 def process_dmarc_reports():
     mail = connect_imap()
@@ -766,7 +726,6 @@ def process_dmarc_reports():
             new_records = []
             has_valid_xml = False
 
-            # Jedes XML im Anhang einzeln auf Duplikate prüfen
             for xml_text in _collect_xmls_from_message(msg):
                 records = parse_dmarc_report(xml_text)
                 if not records:
@@ -781,7 +740,6 @@ def process_dmarc_reports():
                 logger_script.warning("[DMARC] Keine gültigen DMARC Daten in Message ID {!r} gefunden.".format(num))
                 continue
 
-            # Daten schreiben / senden
             emit_records(new_records)
 
             # Erst nach erfolgreicher Verarbeitung Mail verschieben oder als gelesen markieren
@@ -789,6 +747,7 @@ def process_dmarc_reports():
                 if IMAP_ARCHIVE:
                     moved = move_message(mail, num, IMAP_ARCHIVE)
                     if not moved:
+                        # Fallback: Falls Verschieben fehlschlägt, zumindest als gelesen markieren
                         mail.store(num, '+FLAGS', '\\Seen')
                 else:
                     mail.store(num, '+FLAGS', '\\Seen')
@@ -809,7 +768,6 @@ def process_dmarc_reports():
     if not DRY_RUN:
         cleanup_old_reports()
     logger_script.info("[DMARC] Verarbeitung abgeschlossen.")
-
 
 def process_file_mode(filename):
     try:
