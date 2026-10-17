@@ -5,10 +5,11 @@
 # IMAP -> DMARC XML (.xml/.gz/.zip/.tgz/.tar.gz) -> Syslog + JSON (daily) + optional Textlog
 #
 # Funktionen:
-#  - IMAP Modus (Standard)
+#  - IMAP Modus (Standard) mit BODY.PEEK[] (verhindert Datenverlust bei Absturz)
 #  - File Modus (--file)
-#  - Streaming zu Syslog (Splunk ready)
+#  - Streaming zu Syslog (Splunk ready, inkl. TCP-Newline-Fix)
 #  - Optimierter RAM-Cache zur Duplikat-Erkennung (Hoster-tauglich für 1000+ Domains)
+#  - Schutz gegen XML- und Decompression-Bomben (ZIP/GZIP/TAR-Größenlimit)
 #  - Trennung von Datei-Archivierung und Cache-Bereinigung
 #  - Lockfile, damit nur ein Job gleichzeitig läuft
 
@@ -30,13 +31,6 @@ import gzip
 import zipfile
 import tarfile
 import io
-
-# XML / defusedxml
-try:
-    from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XMLParseError
-except Exception:
-    from xml.etree.ElementTree import fromstring as _xml_fromstring, ParseError as _XMLParseError
-
 import logging
 import logging.handlers
 import configparser
@@ -50,13 +44,24 @@ import sys
 import fcntl
 import atexit
 
+# XML / defusedxml
+try:
+    from defusedxml.ElementTree import fromstring as _xml_fromstring, ParseError as _XMLParseError
+    _USING_DEFUSEDXML = True
+except ImportError:
+    from xml.etree.ElementTree import fromstring as _xml_fromstring, ParseError as _XMLParseError
+    _USING_DEFUSEDXML = False
+
 
 # ======================================================================
-# Metadaten
+# Metadaten & Konstanten
 # ======================================================================
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 __author__ = "Claude Heinzmann"
 __license__ = "MIT"
+
+# Schutz gegen ZIP/GZIP-Bomben: Max. 50 MB pro entpackter XML-Datei im RAM
+MAX_XML_SIZE = 50 * 1024 * 1024
 
 
 # ======================================================================
@@ -81,6 +86,7 @@ _valid_levels = {
 _loglevel_upper = str(args.loglevel or "INFO").upper()
 LOGLEVEL = _valid_levels.get(_loglevel_upper, logging.INFO)
 
+
 # ======================================================================
 # Konfiguration einlesen (cron-sicher, relativ zum Script)
 # ======================================================================
@@ -92,7 +98,7 @@ config = configparser.ConfigParser()
 _read_files = config.read(CONFIG_PATH)
 
 if not _read_files:
-    print("Konnte Konfigurationsdatei nicht laden: {}".format(CONFIG_PATH))
+    print("Konnte Konfigurationsdatei nicht laden: {}".format(CONFIG_PATH), file=sys.stderr)
     sys.exit(1)
 
 required_sections = ['options']
@@ -104,7 +110,8 @@ for section in required_sections:
         print(
             "Fehlende Konfigurationssektion: [{}]. Bitte config.ini prüfen (Datei: {}).".format(
                 section, CONFIG_PATH
-            )
+            ),
+            file=sys.stderr
         )
         sys.exit(1)
 
@@ -131,14 +138,14 @@ DRY_RUN = config.getboolean("options", "dry_run", fallback=False)
 LOG_RECORDS = config.getboolean("options", "log_records", fallback=True)
 WRITE_TEXT_LOG = config.getboolean("options", "write_text_log", fallback=False)
 TEXT_LOG_PATH = config.get("options", "text_log_path", fallback="dmarc_data.log")
-JSON_MODE = config.get("options", "json_mode", fallback="array").lower()
+# Standard auf ndjson für High-Performance, sofern in config.ini nicht anders angegeben
+JSON_MODE = config.get("options", "json_mode", fallback="ndjson").lower()
 
 PROCESSED_DB = config.get("options", "processed_db", fallback="/var/lib/dmarc-collector/processed.json")
-
-# Lockfile: Standard gemäss deiner Vorgabe
 LOCK_FILE = config.get("options", "lock_file", fallback="/run/lock/dmarc-collector.lock")
 
 CONSOLE_LOG = config.getboolean("logging", "console", fallback=True)
+
 
 # ======================================================================
 # Logging
@@ -164,12 +171,12 @@ if config.getboolean("logging", "enable_file", fallback=False):
     try:
         base_dir = os.path.dirname(file_path) or "."
         os.makedirs(base_dir, exist_ok=True)
-    except Exception:
-        pass
-    file_handler = logging.FileHandler(file_path)
-    file_handler.setFormatter(formatter_script)
-    file_handler.setLevel(LOGLEVEL)
-    logger_script.addHandler(file_handler)
+        file_handler = logging.FileHandler(file_path, encoding="utf-8")
+        file_handler.setFormatter(formatter_script)
+        file_handler.setLevel(LOGLEVEL)
+        logger_script.addHandler(file_handler)
+    except Exception as e:
+        logger_script.error("[LOGGING] Konnte Log-Datei nicht öffnen ({}): {}".format(file_path, e))
 
 if SYSLOG_ENABLED and not DRY_RUN:
     try:
@@ -183,12 +190,20 @@ if SYSLOG_ENABLED and not DRY_RUN:
             syslog_handler = logging.handlers.SysLogHandler(
                 address=(SYSLOG_HOST, SYSLOG_PORT)
             )
+        
+        # WICHTIG: Bei TCP-Syslog zwingend Zeilenumbruch als Trennzeichen setzen
+        if SYSLOG_PROTO == "tcp":
+            syslog_handler.terminator = "\n"
+            
         syslog_handler.setFormatter(formatter_syslog)
         logger_data.addHandler(syslog_handler)
     except Exception as e:
         logger_script.error("[DMARC] Fehler beim Einrichten des Syslog Handlers: {}".format(e))
 
 logger_script.info("Konfiguration geladen aus: {}".format(CONFIG_PATH))
+if not _USING_DEFUSEDXML:
+    logger_script.warning("[SECURITY] 'defusedxml' ist nicht installiert! Falle zurück auf Standard-XML-Parser.")
+
 
 # ======================================================================
 # Hilfsfunktionen
@@ -207,17 +222,6 @@ def _decode_mime_header(raw):
         return raw
     except Exception:
         return raw
-
-
-def _content_disposition(part):
-    try:
-        cd = part.get_content_disposition()
-        return (cd or "").lower()
-    except AttributeError:
-        cd = part.get("Content-Disposition")
-        if not cd:
-            return ""
-        return cd.split(";")[0].strip().lower()
 
 
 def safe_select(mail, folder):
@@ -272,22 +276,24 @@ def write_record_to_file(record):
         with open(TEXT_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception as e:
-        logger_script.error("[DMARC] Fehler beim Schreiben der Datei Ausgabe: {}".format(e))
+        logger_script.error("[DMARC] Fehler beim Schreiben der Datei-Ausgabe: {}".format(e))
 
 
 def move_message(mail, msg_id, target_folder):
     if not target_folder:
-        return
+        return False
     if isinstance(msg_id, bytes):
-        try:
-            msg_id = msg_id.decode('ascii', errors='ignore')
-        except Exception:
-            msg_id = str(msg_id)
+        msg_id = msg_id.decode('ascii', errors='ignore')
+    else:
+        msg_id = str(msg_id)
+        
     typ, _ = mail.copy(msg_id, target_folder)
     if typ == 'OK':
         mail.store(msg_id, '+FLAGS', '\\Deleted')
+        return True
     else:
         logger_script.warning("[IMAP] COPY nach '{}' fehlgeschlagen für ID {}.".format(target_folder, msg_id))
+        return False
 
 
 def _strip_namespaces(root):
@@ -379,44 +385,64 @@ def extract_xml_from_archive(filename, payload):
     try:
         fn = (filename or "").lower()
         if fn.endswith(".gz") and not fn.endswith(".tar.gz"):
-            xml_list.append(gzip.decompress(payload).decode("utf-8"))
+            with gzip.GzipFile(fileobj=io.BytesIO(payload)) as gz:
+                data = gz.read(MAX_XML_SIZE + 1)
+                if len(data) > MAX_XML_SIZE:
+                    raise ValueError("GZIP-Inhalt überschreitet Maximalgröße von {} MB".format(MAX_XML_SIZE // (1024 * 1024)))
+                xml_list.append(data.decode("utf-8", errors="replace"))
         elif fn.endswith(".zip"):
             with zipfile.ZipFile(io.BytesIO(payload)) as zf:
                 for zipinfo in zf.infolist():
                     if zipinfo.filename.lower().endswith(".xml"):
+                        if zipinfo.file_size > MAX_XML_SIZE:
+                            logger_script.warning("[DMARC] XML in ZIP zu groß ({}): übersprungen.".format(zipinfo.filename))
+                            continue
                         with zf.open(zipinfo) as file:
-                            xml_list.append(file.read().decode("utf-8"))
+                            data = file.read(MAX_XML_SIZE + 1)
+                            if len(data) > MAX_XML_SIZE:
+                                logger_script.warning("[DMARC] XML in ZIP überschreitet Limit beim Lesen ({}): übersprungen.".format(zipinfo.filename))
+                                continue
+                            xml_list.append(data.decode("utf-8", errors="replace"))
         elif fn.endswith(".tar.gz") or fn.endswith(".tgz"):
             with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
                 for member in tar.getmembers():
-                    if member.name.lower().endswith(".xml"):
+                    if member.isfile() and member.name.lower().endswith(".xml"):
+                        if member.size > MAX_XML_SIZE:
+                            logger_script.warning("[DMARC] XML in TAR zu groß ({}): übersprungen.".format(member.name))
+                            continue
                         f = tar.extractfile(member)
                         if f:
-                            xml_list.append(f.read().decode("utf-8"))
+                            data = f.read(MAX_XML_SIZE + 1)
+                            if len(data) > MAX_XML_SIZE:
+                                logger_script.warning("[DMARC] XML in TAR überschreitet Limit beim Lesen ({}): übersprungen.".format(member.name))
+                                continue
+                            xml_list.append(data.decode("utf-8", errors="replace"))
     except Exception as e:
         logger_script.error("[DMARC] Fehler beim Entpacken von {}: {}".format(filename, e))
     return xml_list
 
 
 def load_existing_json(path):
+    if not os.path.exists(path):
+        return []
     try:
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as e:
         logger_script.error("[DMARC] JSON Datei beschädigt oder ungültig ({}). Starte neu: {}".format(e, path))
         return []
-    except Exception:
+    except Exception as e:
+        logger_script.error("[DMARC] Fehler beim Lesen von {}: {}".format(path, e))
         return []
 
 
 def write_json(path, data):
-    try:
-        base = os.path.dirname(path) or "."
-        os.makedirs(base, exist_ok=True)
-    except Exception:
-        pass
-    with open(path, "w", encoding="utf-8") as f:
+    base = os.path.dirname(path) or "."
+    os.makedirs(base, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
 
 
 def append_to_daily_json(records):
@@ -468,8 +494,16 @@ def _collect_xmls_from_message(msg):
     for part in msg.walk():
         filename = part.get_filename()
         ctype = (part.get_content_type() or "").lower()
-        if not filename and ("zip" in ctype or "gzip" in ctype or "xml" in ctype):
-            filename = "part." + ("zip" if "zip" in ctype else ("gz" if "gzip" in ctype else "xml"))
+        if not filename and ("zip" in ctype or "gzip" in ctype or "xml" in ctype or "tar" in ctype):
+            if "zip" in ctype:
+                ext = "zip"
+            elif "tar" in ctype:
+                ext = "tar.gz"
+            elif "gzip" in ctype:
+                ext = "gz"
+            else:
+                ext = "xml"
+            filename = "part." + ext
         if not filename:
             continue
         payload = part.get_payload(decode=True)
@@ -480,7 +514,10 @@ def _collect_xmls_from_message(msg):
             xml_texts.extend(extract_xml_from_archive(fn_low, payload))
         elif fn_low.endswith(".xml"):
             try:
-                xml_texts.append(payload.decode("utf-8"))
+                if len(payload) > MAX_XML_SIZE:
+                    logger_script.warning("[DMARC] XML-Anhang zu groß ({}): übersprungen.".format(filename))
+                    continue
+                xml_texts.append(payload.decode("utf-8", errors="replace"))
             except Exception as e:
                 logger_script.exception("[DMARC] Fehler beim Verarbeiten von {}: {}".format(filename, e))
     return xml_texts
@@ -496,18 +533,14 @@ _processed_cache = set()
 def purge_old_processed():
     """
     Bereinigt den RAM-Cache basierend auf CACHE_DAYS_TO_KEEP.
-    Dies hält die processed_db klein und schnell (z.B. nur 3 Tage).
+    Dies hält die processed_db klein und schnell.
     """
     global _processed_cache
 
-    if not _processed_cache:
-        return
-    # ÄNDERUNG: Wir nutzen hier die eigene Cache-Variable, nicht mehr die Datei-Variable
-    if CACHE_DAYS_TO_KEEP <= 0:
+    if not _processed_cache or CACHE_DAYS_TO_KEEP <= 0:
         return
 
     now_ts = int(time.time())
-    # ÄNDERUNG: Berechnung mit CACHE_DAYS_TO_KEEP
     cutoff_ts = now_ts - CACHE_DAYS_TO_KEEP * 86400
 
     keep = set()
@@ -519,7 +552,7 @@ def purge_old_processed():
             end_str = parts[3] if len(parts) >= 4 else ""
             end_ts = int(end_str)
         except Exception:
-            # Beschädigte Keys sicherheitshalber behalten, um Loop zu vermeiden
+            # Beschädigte oder nicht-nummerische Keys behalten, um Re-Processing-Loops zu vermeiden
             keep.add(key)
             continue
 
@@ -543,7 +576,7 @@ def load_processed_cache():
     Lädt die DB nur in den RAM. Kein Aufräumen hier -> Maximale Startgeschwindigkeit.
     """
     global _processed_cache
-    if not PROCESSED_DB:
+    if not PROCESSED_DB or not os.path.exists(PROCESSED_DB):
         _processed_cache = set()
         return
     try:
@@ -551,34 +584,27 @@ def load_processed_cache():
             items = json.load(f)
             _processed_cache = set(items)
         logger_script.debug("[DMARC] processed_db geladen: {} Einträge".format(len(_processed_cache)))
-        
-        # ÄNDERUNG: Hier NICHT purgen! 
-        # Wir laden die Datei so schnell wie möglich. Sie ist bereits sauber, 
-        # da beim letzten 'save' aufgeräumt wurde.
-        # purge_old_processed() 
-        
-    except Exception:
+    except Exception as e:
+        logger_script.error("[DMARC] Konnte processed_db nicht laden ({}), starte mit leerem Cache: {}".format(PROCESSED_DB, e))
         _processed_cache = set()
 
 
 def save_processed_cache():
     """
-    Räumt auf und speichert dann. Hält die Datei auf der Festplatte klein.
+    Räumt auf und speichert dann atomar. Hält die Datei auf der Festplatte klein.
     """
-    if not PROCESSED_DB:
+    if not PROCESSED_DB or DRY_RUN:
         return
     try:
-        # ÄNDERUNG: Hier wird aufgeräumt, BEVOR wir auf die Festplatte schreiben.
         purge_old_processed()
-        
+
         base = os.path.dirname(PROCESSED_DB) or "."
         os.makedirs(base, exist_ok=True)
         tmp = PROCESSED_DB + ".tmp"
-        
-        # Sortiert speichern für schönere Diffs (optional, kostet etwas CPU)
+
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(sorted(_processed_cache), f, indent=2, ensure_ascii=False)
-            
+
         os.replace(tmp, PROCESSED_DB)
         logger_script.debug("[DMARC] processed_db gespeichert: {} Einträge".format(len(_processed_cache)))
     except Exception as e:
@@ -609,6 +635,25 @@ def is_duplicate_report(records):
     return False
 
 
+def emit_records(records):
+    """
+    Zentrale Ausgabefunktion für Syslog, Text-Log und Tages-JSON.
+    Sauber getrennt, damit Text-Log auch ohne aktives Syslog funktioniert.
+    """
+    if not records or DRY_RUN:
+        return
+
+    if LOG_RECORDS:
+        for r in records:
+            if SYSLOG_ENABLED:
+                log_record_to_syslog(r)
+            if WRITE_TEXT_LOG:
+                write_record_to_file(r)
+
+    if SAVE_JSON:
+        append_to_daily_json(records)
+
+
 # ======================================================================
 # Lockfile
 # ======================================================================
@@ -625,8 +670,8 @@ def acquire_lock():
     try:
         base = os.path.dirname(LOCK_FILE) or "."
         os.makedirs(base, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger_script.debug("[LOCK] Konnte Lock-Verzeichnis nicht prüfen/erstellen: {}".format(e))
 
     try:
         _lock_fh = open(LOCK_FILE, "w")
@@ -699,11 +744,12 @@ def process_dmarc_reports():
 
     typ, data = mail.search(None, "UNSEEN")
     ids = (data[0].split() if typ == 'OK' and data and data[0] else [])
-    logger_script.info("[IMAP] {} ungelesene DMARC Mails im Ordner {} gefunden.".format(len(ids), IMAP_FOLDER))
+    logger_script.info("[IMAP] {} ungelesene DMARC Mails im Ordner '{}' gefunden.".format(len(ids), IMAP_FOLDER))
 
     for num in ids:
         try:
-            typ, msg_data = mail.fetch(num, "(RFC822)")
+            # BODY.PEEK[] liest die Mail, ohne das \Seen-Flag sofort auf dem Server zu setzen
+            typ, msg_data = mail.fetch(num, "(BODY.PEEK[])")
             if typ != 'OK' or not msg_data or not msg_data[0]:
                 continue
 
@@ -717,42 +763,48 @@ def process_dmarc_reports():
             from_hdr = _decode_mime_header(msg.get('From'))
             logger_script.debug("[IMAP] Bearbeite Message ID {!r} | From: {} | Subject: {}".format(num, from_hdr, subject))
 
-            all_records = []
-            for xml_text in _collect_xmls_from_message(msg):
-                all_records.extend(parse_dmarc_report(xml_text))
+            new_records = []
+            has_valid_xml = False
 
-            if not all_records:
+            # Jedes XML im Anhang einzeln auf Duplikate prüfen
+            for xml_text in _collect_xmls_from_message(msg):
+                records = parse_dmarc_report(xml_text)
+                if not records:
+                    continue
+                has_valid_xml = True
+                if is_duplicate_report(records):
+                    logger_script.info("[DMARC] Report '{}' bereits verarbeitet, wird übersprungen.".format(make_report_key(records)))
+                    continue
+                new_records.extend(records)
+
+            if not has_valid_xml:
                 logger_script.warning("[DMARC] Keine gültigen DMARC Daten in Message ID {!r} gefunden.".format(num))
                 continue
 
-            if is_duplicate_report(all_records):
-                logger_script.info("[DMARC] DMARC Report bereits verarbeitet, wird übersprungen.")
-                if IMAP_ARCHIVE and not DRY_RUN:
-                    move_message(mail, num, IMAP_ARCHIVE)
-                continue
+            # Daten schreiben / senden
+            emit_records(new_records)
 
-            if LOG_RECORDS and not DRY_RUN and SYSLOG_ENABLED:
-                for r in all_records:
-                    log_record_to_syslog(r)
-                    if WRITE_TEXT_LOG:
-                        write_record_to_file(r)
-            if SAVE_JSON and not DRY_RUN:
-                append_to_daily_json(all_records)
-            if IMAP_ARCHIVE and not DRY_RUN:
-                move_message(mail, num, IMAP_ARCHIVE)
+            # Erst nach erfolgreicher Verarbeitung Mail verschieben oder als gelesen markieren
+            if not DRY_RUN:
+                if IMAP_ARCHIVE:
+                    moved = move_message(mail, num, IMAP_ARCHIVE)
+                    if not moved:
+                        mail.store(num, '+FLAGS', '\\Seen')
+                else:
+                    mail.store(num, '+FLAGS', '\\Seen')
 
         except Exception as e:
             logger_script.exception("[DMARC] Fehler bei Mail ID {}: {}".format(num, e))
 
     try:
         mail.expunge()
-    except Exception:
-        pass
+    except Exception as e:
+        logger_script.debug("[IMAP] Expunge fehlgeschlagen: {}".format(e))
 
     try:
         mail.logout()
-    except Exception:
-        pass
+    except Exception as e:
+        logger_script.debug("[IMAP] Logout fehlgeschlagen: {}".format(e))
 
     if not DRY_RUN:
         cleanup_old_reports()
@@ -772,33 +824,38 @@ def process_file_mode(filename):
         fn_low = filename.lower()
 
         if fn_low.endswith(".xml"):
-            xml_list = [payload.decode("utf-8")]
+            if len(payload) > MAX_XML_SIZE:
+                logger_script.error("[DMARC] Datei zu groß ({}): abgebrochen.".format(filename))
+                sys.exit(1)
+            xml_list = [payload.decode("utf-8", errors="replace")]
         elif is_supported_archive(fn_low):
             xml_list = extract_xml_from_archive(fn_low, payload)
         else:
             logger_script.error("[DMARC] Nicht unterstütztes Dateiformat: {}".format(filename))
             sys.exit(1)
 
-        all_records = []
-        for xml in xml_list:
-            all_records.extend(parse_dmarc_report(xml))
+        new_records = []
+        has_valid_xml = False
 
-        if not all_records:
+        for xml in xml_list:
+            records = parse_dmarc_report(xml)
+            if not records:
+                continue
+            has_valid_xml = True
+            if is_duplicate_report(records):
+                logger_script.info("[DMARC] Report '{}' aus {} bereits verarbeitet, übersprungen.".format(make_report_key(records), filename))
+                continue
+            new_records.extend(records)
+
+        if not has_valid_xml:
             logger_script.warning("[DMARC] Keine gültigen DMARC Daten in {} gefunden.".format(filename))
             return
 
-        if is_duplicate_report(all_records):
-            logger_script.info("[DMARC] Datei {} enthält bereits verarbeiteten DMARC Report. Übersprungen.".format(filename))
+        if not new_records:
             return
 
-        if LOG_RECORDS and not DRY_RUN and SYSLOG_ENABLED:
-            for r in all_records:
-                log_record_to_syslog(r)
-                if WRITE_TEXT_LOG:
-                    write_record_to_file(r)
-        if SAVE_JSON and not DRY_RUN:
-            append_to_daily_json(all_records)
-        logger_script.info("[DMARC] {} Datensätze aus {} verarbeitet.".format(len(all_records), filename))
+        emit_records(new_records)
+        logger_script.info("[DMARC] {} Datensätze aus {} verarbeitet.".format(len(new_records), filename))
 
     except Exception as e:
         logger_script.exception("[DMARC] Fehler beim Verarbeiten der Datei {}: {}".format(filename, e))
@@ -809,8 +866,6 @@ def process_file_mode(filename):
 # ======================================================================
 
 if __name__ == "__main__":
-
-    # Logging Initialisierung ist hier schon durch
     logger_script.info("Starte DMARC Collector v{} (Python {})".format(__version__, sys.version.split()[0]))
 
     acquire_lock()
