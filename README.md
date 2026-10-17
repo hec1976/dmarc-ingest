@@ -10,7 +10,7 @@
 ```
 
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
-![Version](https://img.shields.io/badge/version-1.2.2-blue)
+![Version](https://img.shields.io/badge/version-1.3.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-purple)
 ![Python](https://img.shields.io/badge/python-3.6%2B-yellow)
 ![Security](https://img.shields.io/badge/CodeQL-Security%20Scan-blueviolet)
@@ -57,7 +57,7 @@ Es automatisiert den kompletten Weg von der E-Mail im IMAP-Postfach bis zu norma
 - Gehärtetes Parsing der DMARC-XML-Struktur (`defusedxml` + Größenlimits gegen Decompression Bombs)
 - Normalisierung in ein einheitliches, flaches Record-Schema
 - Paralleler Export nach **Syslog (UDP/TCP)**, **NDJSON / JSON** und **Text-Log**
-- Schnelle RAM-basierte Deduplizierung bereits verarbeiteter Reports
+- Schnelle RAM-basierte Deduplizierung bereits verarbeiteter Reports (Tracking nach Ingest-Zeitpunkt, sodass auch verspätet nachgelieferte Alt-Reports zuverlässig erkannt werden)
 - Lockfile-Mechanismus (`fcntl`), damit nie zwei Jobs gleichzeitig laufen
 - Getrennte, automatische Aufräumlogik für alte JSON-Tagesdateien und den Deduplizierungs-Cache
 - Isoliertes **Python Virtual Environment (venv)** zum Schutz des Host-Systems
@@ -507,6 +507,7 @@ flowchart TD
 
 - **Hohe Volumina (1.000+ Domains):** Unbedingt `json_mode = ndjson` verwenden. Dadurch werden neue Datensätze per Datei-Append geschrieben, ohne die bestehende Tagesdatei in den RAM laden zu müssen.
 - **Kleiner Deduplizierungs-Cache:** Über `processed_days_to_keep = 3` bleibt die `processed.json` dauerhaft schlank, während die eigentlichen JSON-Tagesreports über `days_to_keep = 30` unabhängig davon länger archiviert werden können.
+- **Dedup nach Ingest-Zeitpunkt:** Der Cache merkt sich, *wann* ein Report eingeliefert wurde – nicht, wie alt der Report ist. Verspätet nachgelieferte Reports werden daher während der gesamten konfigurierten Cache-Dauer sicher als Duplikat erkannt. Liefern Provider bei dir regelmäßig Reports später als das Cache-Fenster nach, den Wert einfach erhöhen (z. B. 7–14 Tage).
 
 ---
 
@@ -526,6 +527,19 @@ Weitere Details siehe `LICENSE`-Datei im Repository.
 ---
 
 ## Changelog
+
+### [1.3.0] – 2026-10-17
+
+**Fixed**
+- Deduplizierungs-Cache trackt jetzt die **Ingest-Zeit** pro Report statt das Report-`end`-Datum mit dem Cache-Fenster zu vergleichen. Verspätet nachgelieferte Reports werden dadurch nicht mehr vorzeitig aus dem Cache entfernt und erneut verarbeitet (keine Duplikate mehr im SIEM)
+- `move_message` prüft nun das Ergebnis des `\Deleted`-Flags und loggt eine Warnung, falls eine Mail nach dem Kopieren nicht als gelöscht markiert werden konnte
+
+**Added**
+- Automatische Migration der `processed.json` beim Upgrade von v1.2.x (Listen-Format) auf das neue Dict-Format (Key → Ingest-Timestamp). Bestehende Installationen verlieren ihren Dedup-Status nicht
+
+**Improved**
+- Neue Standard-Pfade konsistent zum Setup (`/var/lib/dmarc-ingest`, `/var/log/dmarc-ingest`, `/run/lock/dmarc-ingest.lock`)
+- Cache-Standard auf `processed_days_to_keep = 3`, JSON-Aufbewahrung auf `days_to_keep = 30`
 
 ### [1.2.2] – 2026-10-17
 
