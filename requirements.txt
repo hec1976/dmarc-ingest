@@ -1,0 +1,3 @@
+# dmarc-ingest runtime dependencies
+# Sicheres XML-Parsing zur Abwehr von XML-Bomben (XXE, Billion Laughs)
+defusedxml>=0.7.1
