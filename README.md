@@ -60,6 +60,7 @@ Es automatisiert den kompletten Weg von der E-Mail im IMAP-Postfach bis zu norma
 - Schnelle RAM-basierte Deduplizierung bereits verarbeiteter Reports
 - Lockfile-Mechanismus (`fcntl`), damit nie zwei Jobs gleichzeitig laufen
 - Getrennte, automatische Aufräumlogik für alte JSON-Tagesdateien und den Deduplizierungs-Cache
+- Isoliertes **Python Virtual Environment (venv)** zum Schutz des Host-Systems
 
 Ziel ist ein **einfach zu betreibendes, aber hochgradig betriebssicheres** Tool für Mail- und Security-Teams.
 
@@ -76,7 +77,7 @@ Ziel ist ein **einfach zu betreibendes, aber hochgradig betriebssicheres** Tool 
 - Unterstützte Anhänge: `.xml`, `.gz`, `.zip`, `.tgz`, `.tar.gz`
 - Mehrere Archive pro Mail sowie mehrere XML-Dateien pro Archiv werden einzeln erkannt und dedupliziert
 - Sicheres XML-Parsing über `defusedxml` (mit automatischem Fallback)
-- integrierter Schutz gegen ZIP-/GZIP-Bomben (max. 50 MB pro XML im RAM)
+- Integrierter Schutz gegen ZIP-/GZIP-Bomben (max. 50 MB pro XML im RAM)
 
 ### Ausgabe
 - Strukturierte Key-Value-Ausgabe über Syslog (UDP und TCP inkl. Newline-Framing)
@@ -153,9 +154,8 @@ Statt einer wartungsintensiven SQL-Datenbank setzt `dmarc-ingest` auf flache Str
 
 - **Python:** 3.6 oder neuer (getestet bis 3.12)
 - **OS:** Linux (Debian/Ubuntu, RHEL/Alma/Rocky, SUSE)
-- **Python-Pakete:**
-  - `defusedxml` (dringend empfohlen für sicheres XML-Parsing: `apt install python3-defusedxml` oder `pip install defusedxml`)
-  - Alle weiteren Module (`imaplib`, `email`, `gzip`, `zipfile`, `tarfile`, `fcntl`, `logging`) sind Teil der Python-Standardbibliothek.
+- **Umgebung:** `python3-venv` Paket (bei Debian/Ubuntu oft getrennt zu installieren: `apt install python3-venv`)
+- Alle weiteren Module (`imaplib`, `email`, `gzip`, `zipfile`, `tarfile`, `fcntl`, `logging`) sind Teil der Python-Standardbibliothek. Das Modul `defusedxml` wird im Rahmen der Installation automatisch im Venv geladen.
 
 ---
 
@@ -169,25 +169,39 @@ sudo mkdir -p /var/lib/dmarc-ingest/reports
 sudo mkdir -p /var/log/dmarc-ingest
 ```
 
-### 2. Dateien deployen
-
-```bash
-# Script kopieren und ausführbar machen
-sudo cp dmarc-ingest.py /opt/dmarc-ingest/
-sudo chmod +x /opt/dmarc-ingest/dmarc-ingest.py
-
-# Konfiguration anlegen
-sudo cp config.ini /opt/dmarc-ingest/config.ini
-```
-
-> **Hinweis:** `dmarc-ingest.py` sucht die `config.ini` standardmäßig im selben Verzeichnis, in dem auch das Script liegt (`/opt/dmarc-ingest/config.ini`).
-
-### 3. Systembenutzer & Berechtigungen einrichten
+### 2. Systembenutzer & Berechtigungen einrichten
 
 ```bash
 sudo groupadd -r dmarc-ingest
 sudo useradd -r -s /usr/sbin/nologin -g dmarc-ingest -d /var/lib/dmarc-ingest dmarc-ingest
+```
 
+### 3. Dateien deployen
+
+Kopiere die Dateien aus dem Repository in das Zielverzeichnis:
+
+```bash
+# Programmdateien kopieren
+sudo cp dmarc-ingest.py setup-venv.sh requirements.txt /opt/dmarc-ingest/
+sudo chmod +x /opt/dmarc-ingest/dmarc-ingest.py
+sudo chmod +x /opt/dmarc-ingest/setup-venv.sh
+
+# Konfiguration anlegen (Rechte werden in Schritt 5 gesetzt)
+sudo cp config.ini /opt/dmarc-ingest/config.ini
+```
+
+### 4. Virtuelle Umgebung (venv) einrichten
+
+Um das System vor Konflikten zu schützen, wird das Programm in einer virtuellen Umgebung ausgeführt.
+
+```bash
+# Setup als dmarc-ingest Nutzer ausführen
+sudo -u dmarc-ingest /opt/dmarc-ingest/setup-venv.sh
+```
+
+### 5. Finale Rechtevergabe
+
+```bash
 sudo chown -R dmarc-ingest:dmarc-ingest \
   /opt/dmarc-ingest \
   /var/lib/dmarc-ingest \
@@ -268,8 +282,10 @@ file_path = /var/log/dmarc-ingest/dmarc-ingest.log
 
 ### Manueller Lauf (IMAP-Abruf)
 
+Führe das Script stets über das konfigurierte Virtual Environment (`venv`) aus:
+
 ```bash
-sudo -u dmarc-ingest /usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
+sudo -u dmarc-ingest /opt/dmarc-ingest/venv/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
 ```
 
 ### Verarbeitung einer lokalen Testdatei (`--file`)
@@ -277,7 +293,7 @@ sudo -u dmarc-ingest /usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglev
 Für Debugging oder das nachträgliche Einlesen einzelner Archive (`.xml`, `.zip`, `.gz`, `.tgz`, `.tar.gz`):
 
 ```bash
-sudo -u dmarc-ingest /usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=DEBUG --file ./sample_report.zip
+sudo -u dmarc-ingest /opt/dmarc-ingest/venv/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=DEBUG --file ./sample_report.zip
 ```
 
 ---
@@ -299,7 +315,8 @@ Type=oneshot
 User=dmarc-ingest
 Group=dmarc-ingest
 WorkingDirectory=/opt/dmarc-ingest
-ExecStart=/usr/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
+# Aufruf über das Virtual Environment (venv)
+ExecStart=/opt/dmarc-ingest/venv/bin/python3 /opt/dmarc-ingest/dmarc-ingest.py --loglevel=INFO
 
 # Systemd-Härtung (Sandboxing)
 NoNewPrivileges=yes
@@ -398,6 +415,9 @@ if $msg contains 'DMARC: org=' then {
 
 ```text
 /opt/dmarc-ingest/
+  ├── venv/                    # Isolierte Python-Umgebung (generiert)
+  ├── requirements.txt         # Abhängigkeiten
+  ├── setup-venv.sh            # Setup-Script
   ├── dmarc-ingest.py          # Hauptskript
   └── config.ini               # Konfiguration (Modus 0600)
 
@@ -469,11 +489,14 @@ flowchart TD
   Enthält das IMAP-Passwort ein `%`-Zeichen, muss es in der `config.ini` verdoppelt werden (`%%`).
 - **Keine Schreibvorgänge trotz gefundener Mails:**
   Prüfen, ob in der `config.ini` noch `dry_run = yes` aktiviert ist.
+- **Modul `defusedxml` fehlt:**
+  Sicherstellen, dass `setup-venv.sh` fehlerfrei durchgelaufen ist und der Dienst über `/opt/dmarc-ingest/venv/bin/python3` aufgerufen wird.
 
 ---
 
 ## Sicherheit & Härtung
 
+- **Isolierte Python-Umgebung:** Das Setup läuft gekapselt in einem `venv` und kann bestehende System-Pakete nicht beeinträchtigen.
 - **Schutz vor XML-Bomben:** Durch den Einsatz von `defusedxml` werden XML-Angriffe wie *Billion Laughs* oder *External Entity Expansion (XXE)* blockiert.
 - **Schutz vor Decompression Bombs:** Beim Entpacken von `.gz`-, `.zip`- und `.tar.gz`-Archiven im Arbeitsspeicher greift ein hartes Limit von 50 MB (`MAX_XML_SIZE`), um Out-of-Memory-Abstürze durch manipulierte Archive zu verhindern.
 - **Transaktionssicherheit im Postfach:** Mails werden mit `BODY.PEEK[]` abgerufen. Das `\Seen`-Flag oder das Verschieben ins Archiv erfolgt erst, wenn das Parsing und Log-Schreiben fehlerfrei abgeschlossen sind.
@@ -507,6 +530,7 @@ Weitere Details siehe `LICENSE`-Datei im Repository.
 ### [1.2.2] – 2026-10-17
 
 **Added**
+- Python Virtual Environment (venv) Support integriert
 - Schutz gegen Decompression-Bomben (`MAX_XML_SIZE` = 50 MB Limit für GZIP/ZIP/TAR)
 - Zentrale `emit_records()`-Ausgabesteuerung
 - Explizite Sicherheitswarnung im Log, falls `defusedxml` auf dem System fehlt
